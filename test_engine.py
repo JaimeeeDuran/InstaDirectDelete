@@ -127,16 +127,18 @@ class FakeClient:
             next_cursor = ""
             has_older = False
 
-        # Convertir a formato API crudo (simplificado).
+        # Items en la MISMA forma que devuelve la API privada de verdad: la
+        # clave es "item_id" (no "id") y el timestamp va en microsegundos.
+        # Importa que sea fiel: si instagrapi está instalado, la paginación usa
+        # su extractor real, y un doble con otra forma haría pasar los tests
+        # mintiendo sobre lo que ocurre en producción.
         items = [
             {
-                "id": m.id,
+                "item_id": m.id,
                 "item_type": m.item_type,
                 "text": m.text,
                 "user_id": m.user_id,
-                "timestamp": m.timestamp.isoformat() if m.timestamp else "",
-                "media": m.media,
-                "link": m.link,
+                "timestamp": int(m.timestamp.timestamp() * 1_000_000) if m.timestamp else 0,
             }
             for m in page_items
         ]

@@ -1,0 +1,91 @@
+# ---------------------------------------------------------------------------
+# ig-espejo — configuración de ejemplo
+#
+# Copia este archivo a "config.yaml" y ajústalo. Casi todo se puede tocar
+# también desde el panel (python dashboard.py), que escribe aquí mismo.
+#
+# NUNCA subas config.yaml a git: lleva tus credenciales. Ya está en .gitignore.
+#
+# Esta herramienta es de SOLO LECTURA: no sigue, no deja de seguir, no bloquea
+# y no borra nada. Lo único que arriesgas aquí es un "espera un rato" de
+# Instagram si abusas del escaneo profundo.
+# ---------------------------------------------------------------------------
+
+account:
+  username: "tu_usuario"
+  password: "tu_contraseña"
+  # Semilla TOTP si tienes 2FA por app. En servidor es mejor usar las
+  # variables de entorno IG_USERNAME / IG_PASSWORD / IG_TOTP_SEED, que
+  # tienen prioridad sobre lo que pongas aquí.
+  totp_seed: ""
+
+session:
+  # Por defecto reutiliza la sesión de ig-unsender (un directorio más arriba).
+  # Compartir un único login entre las dos herramientas es lo que evita
+  # loguearse dos veces, que es la señal más clara de automatización.
+  file: "../session.json"
+
+# ---------------------------------------------------------------------------
+# ESCANEO — qué se descarga y a qué ritmo
+# ---------------------------------------------------------------------------
+scan:
+  target: ""                 # vacío = tu propia cuenta. Un @usuario público también vale
+  followers_amount: 0        # 0 = todos
+  following_amount: 0        # 0 = todos
+
+  # El escaneo profundo pide el perfil CUENTA POR CUENTA. Es lo único que da
+  # nº de publicaciones, biografía y ratios — y también la vía más rápida a un
+  # rate-limit. Va desactivado, acotado y priorizando a quienes ya tienen
+  # indicios baratos.
+  deep_scan: false
+  deep_scan_limit: 60        # máximo de cuentas a consultar en profundidad
+  deep_min_delay: 2.0        # pausa aleatoria entre consultas (s)
+  deep_max_delay: 5.0
+  pause_every: 25            # cada N cuentas, una pausa larga
+  long_pause_min: 20.0
+  long_pause_max: 45.0
+
+# ---------------------------------------------------------------------------
+# SOSPECHOSOS — heurística de indicios, no un detector de bots infalible
+# Cada señal suma puntos y aporta un motivo legible. Mira los motivos, no la
+# cifra: la cifra solo sirve para ordenar la lista.
+# ---------------------------------------------------------------------------
+suspects:
+  enabled: true
+  umbral_medio: 35           # a partir de aquí aparece en la lista
+  umbral_alto: 60            # a partir de aquí se marca en rojo
+
+  # Señales baratas (salen de la propia lista de seguidores)
+  peso_sin_foto: 30
+  peso_username_numerico: 20
+  peso_sin_nombre: 10
+  minimo_digitos: 4          # dígitos seguidos en el usuario para marcarlo
+
+  # Señales caras (solo con deep_scan activado)
+  peso_sin_publicaciones: 25
+  peso_sin_bio: 10
+  peso_ratio_extremo: 25
+  ratio_extremo: 20.0        # sigue a >20x las cuentas que le siguen
+
+# ---------------------------------------------------------------------------
+# INTOCABLES — tu gente. Nunca se marcan como sospechosos ni se sugiere nada
+# sobre ellos. Se comparan en minúsculas, con o sin arroba.
+# ---------------------------------------------------------------------------
+whitelist:
+  usernames: []
+    # - mi_pareja
+    # - mi_hermano
+
+snapshots:
+  dir: "snapshots"           # una foto fija por escaneo, en JSON
+  keep: 60                   # cuántas conservar (las viejas se borran solas)
+
+dashboard:
+  host: "127.0.0.1"          # NO lo abras a la red sin HTTPS: maneja tu sesión
+  port: 8788                 # distinto del 8787 de ig-unsender
+  auth_token: ""             # vacío = se genera uno nuevo en cada arranque
+  open_browser: true
+
+logging:
+  file: "espejo.log"
+  level: "INFO"

@@ -6,6 +6,10 @@ state.json
 audit.jsonl
 *.log
 
+# ig-espejo: fotos fijas de seguidores. Son datos personales de terceros
+# (quién te sigue y quién no), no material de repositorio.
+ig-espejo/snapshots/
+
 # Python
 __pycache__/
 *.pyc
