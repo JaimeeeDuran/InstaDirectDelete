@@ -5,12 +5,50 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ig-unsender · Panel de control</title>
 <style>
+  /* ---------------------------------------------------------------------
+     Tokens semánticos: un color, un significado. El acento (azul) es solo
+     "interactivo/navegación". El riesgo real vive en dos colores propios:
+     --caution (ámbar) para todo lo recuperable — simulación, avisos, reintentos —
+     y --danger (rojo) reservado EXCLUSIVAMENTE para lo irreversible: el botón
+     de borrado real y la marca "anulado". Nunca se reutilizan para otra cosa.
+     Contraste verificado (WCAG) contra cada superficie sobre la que se pinta;
+     ver commit para los números. Oscuro por defecto (herramienta técnica que
+     se deja abierta en segundo plano), con variante clara por preferencia de
+     sistema — nunca un interruptor propio de la app (dark-mode.md).
+  --------------------------------------------------------------------- */
   :root{
-    --bg:#0d1117; --bg-2:#161b22; --bg-3:#1c2333; --line:#2a3242;
-    --txt:#e6edf3; --txt-2:#8b949e; --txt-3:#6e7681;
-    --accent:#4c8dff; --ok:#3fb950; --warn:#d29922; --err:#f85149;
-    --prot:#a371f7; --radius:10px;
+    --bg:#121316; --bg-2:#1a1b1f; --bg-3:#212328; --line:#33353c;
+    --txt:#f2f1ee; --txt-2:#adadb3; --txt-3:#8b8b93;
+    --accent:#5b9dff; --accent-fill:#2a63cc;
+    --caution:#e8a33d; --danger:#ff6b60; --danger-fill:#c02f24;
+    --ok:#4cc26a; --prot:#b58af5;
+    --on-fill:#ffffff;
+    /* El registro en vivo es una terminal: se queda siempre oscuro, con o sin
+       Modo claro, igual que Terminal.app dentro de una app clara. Por eso
+       estos tokens NO se redefinen en la media query de apariencia clara. */
+    --console-bg:#1c1d20; --console-txt:#e4e4e0; --console-txt-2:#8b8b93;
+    --console-info:#5b9dff; --console-warn:#e8a33d; --console-err:#ff6b60;
+    --radius:10px;
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    color-scheme: dark;
+  }
+  /* Sin interruptor propio en la app: seguimos la preferencia del sistema,
+     nunca al revés (dark-mode.md § Best practices). */
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f5f5f7; --bg-2:#ffffff; --bg-3:#eef0f2; --line:#d9d9de;
+      --txt:#1d1d1f; --txt-2:#55555a; --txt-3:#656569;
+      --accent:#0066cc; --accent-fill:#0066cc;
+      --caution:#9a5b00; --danger:#c62c22; --danger-fill:#c62c22;
+      --ok:#1c7a3e; --prot:#7c3fc4;
+      color-scheme: light;
+    }
+  }
+  @media (prefers-contrast: more){
+    :root{ --line:#585a63; --txt-3:#a3a3aa; }
+  }
+  @media (prefers-contrast: more) and (prefers-color-scheme: light){
+    :root{ --line:#9a9aa0; --txt-3:#47474b; }
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{
@@ -19,6 +57,21 @@
     display:flex;min-height:100vh;
   }
   button,input,select,textarea{font:inherit;color:inherit}
+  a{color:var(--accent)}
+
+  /* Foco de teclado: un anillo consistente en TODO control interactivo.
+     Solo aparece con :focus-visible (teclado), nunca al hacer clic con ratón. */
+  :focus{outline:none}
+  a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
+  textarea:focus-visible,[tabindex]:focus-visible{
+    outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;
+  }
+  .switch input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;
+      transition-duration:.001ms !important;scroll-behavior:auto !important}
+  }
 
   /* ---------- sidebar ---------- */
   aside{
@@ -36,10 +89,12 @@
     cursor:pointer;text-align:left;font-size:13.5px;margin-bottom:2px;
   }
   nav button:hover{background:var(--bg-3);color:var(--txt)}
-  nav button.on{background:var(--accent);color:#fff;font-weight:550}
-  nav .ico{width:16px;text-align:center;opacity:.9}
+  nav button.on{background:var(--accent-fill);color:var(--on-fill);font-weight:550}
+  nav .ico{width:16px;display:inline-flex;flex-shrink:0}
+  nav .ico svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;
+    stroke-linecap:round;stroke-linejoin:round}
   .side-foot{padding:14px 16px;border-top:1px solid var(--line);font-size:11px;color:var(--txt-3)}
-  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--err);margin-right:6px}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--danger);margin-right:6px}
   .dot.live{background:var(--ok);box-shadow:0 0 6px var(--ok)}
 
   /* ---------- layout ---------- */
@@ -57,13 +112,15 @@
   }
   .pill .led{width:7px;height:7px;border-radius:50%;background:var(--txt-3)}
   .pill.running{border-color:var(--ok);color:var(--ok)} .pill.running .led{background:var(--ok);animation:blink 1.2s infinite}
-  .pill.paused{border-color:var(--warn);color:var(--warn)} .pill.paused .led{background:var(--warn)}
-  .pill.error{border-color:var(--err);color:var(--err)} .pill.error .led{background:var(--err)}
+  .pill.paused{border-color:var(--caution);color:var(--caution)} .pill.paused .led{background:var(--caution)}
+  .pill.error{border-color:var(--danger);color:var(--danger)} .pill.error .led{background:var(--danger)}
   .pill.finished{border-color:var(--accent);color:var(--accent)} .pill.finished .led{background:var(--accent)}
   @keyframes blink{50%{opacity:.35}}
-  .mode{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px}
-  .mode.sim{background:rgba(76,141,255,.15);color:var(--accent);border:1px solid rgba(76,141,255,.35)}
-  .mode.real{background:rgba(248,81,73,.15);color:var(--err);border:1px solid rgba(248,81,73,.4)}
+  .mode{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;font-weight:600}
+  /* SIMULACIÓN = ámbar (nada ocurre todavía, pero atención). BORRADO REAL = rojo,
+     y solo esto usa rojo: es la única acción irreversible de todo el panel. */
+  .mode.sim{background:color-mix(in srgb,var(--caution) 14%,transparent);color:var(--caution);border:1px solid color-mix(in srgb,var(--caution) 40%,transparent)}
+  .mode.real{background:var(--danger-fill);color:var(--on-fill);border:1px solid var(--danger-fill)}
   section.page{padding:24px 26px;display:none;flex:1;overflow:auto}
   section.page.on{display:block}
 
@@ -76,8 +133,12 @@
   .kpi{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
   .kpi .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--txt-3);margin-bottom:6px}
   .kpi .val{font-size:26px;font-weight:650;font-family:var(--mono);letter-spacing:-1px}
-  .kpi.del .val{color:var(--err)} .kpi.prot .val{color:var(--prot)}
-  .kpi.keep .val{color:var(--txt-2)} .kpi.err .val{color:var(--warn)}
+  /* Ámbar mientras es simulación; rojo (--danger) solo cuando se confirma
+     borrado real, para que el número más importante del panel nunca mienta
+     sobre lo que realmente está en juego. */
+  .kpi.del .val{color:var(--caution)} .kpi.del.real .val{color:var(--danger)}
+  .kpi.prot .val{color:var(--prot)}
+  .kpi.keep .val{color:var(--txt-2)} .kpi.err .val{color:var(--caution)}
   .kpi .sub{font-size:11px;color:var(--txt-3);margin-top:3px}
 
   .btn{
@@ -85,11 +146,14 @@
     background:var(--bg-3);cursor:pointer;font-size:13px;font-weight:550;
     transition:.12s;display:inline-flex;align-items:center;gap:7px;
   }
+  .btn svg,h3 svg{width:13px;height:13px;flex-shrink:0}
+  svg.ico-stroke{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  svg.ico-inline{width:13px;height:13px;vertical-align:-2px;flex-shrink:0}
   .btn:hover:not(:disabled){border-color:var(--accent);transform:translateY(-1px)}
   .btn:disabled{opacity:.38;cursor:not-allowed}
-  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-  .btn.danger{background:rgba(248,81,73,.14);border-color:rgba(248,81,73,.45);color:var(--err)}
-  .btn.danger:hover:not(:disabled){background:var(--err);color:#fff}
+  .btn.primary{background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-fill)}
+  .btn.danger{background:color-mix(in srgb,var(--danger) 12%,transparent);border-color:color-mix(in srgb,var(--danger) 50%,transparent);color:var(--danger)}
+  .btn.danger:hover:not(:disabled){background:var(--danger-fill);border-color:var(--danger-fill);color:var(--on-fill)}
   .btn.ghost{background:none}
   .btn.sm{padding:5px 11px;font-size:12px}
   .row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
@@ -112,9 +176,9 @@
 
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
   .chip{background:var(--bg-3);border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:11.5px;font-family:var(--mono);display:inline-flex;align-items:center;gap:6px}
-  .chip b{cursor:pointer;color:var(--txt-3);font-weight:700}
-  .chip b:hover{color:var(--err)}
-  .chip.t{background:rgba(76,141,255,.14);border-color:rgba(76,141,255,.3);color:var(--accent)}
+  .chip button{background:none;border:0;padding:0;cursor:pointer;color:var(--txt-3);font-weight:700;font-size:inherit;line-height:1}
+  .chip button:hover{color:var(--danger)}
+  .chip.t{background:color-mix(in srgb,var(--accent) 12%,transparent);border-color:color-mix(in srgb,var(--accent) 30%,transparent);color:var(--accent)}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px}
   th{
@@ -125,36 +189,49 @@
   td{padding:8px 10px;border-bottom:1px solid rgba(42,50,66,.5);vertical-align:top}
   tr:hover td{background:rgba(255,255,255,.02)}
   .tag{
-    display:inline-block;padding:2px 7px;border-radius:5px;font-size:10.5px;
+    display:inline-block;padding:2px 7px;border-radius:5px;font-size:11px;
     font-weight:650;font-family:var(--mono);text-transform:uppercase;letter-spacing:.3px;
+    border:1px solid transparent;
   }
-  .tag.deleted,.tag.would_delete{background:rgba(248,81,73,.16);color:var(--err)}
-  .tag.protected{background:rgba(163,113,247,.16);color:var(--prot)}
-  .tag.kept{background:rgba(139,148,158,.16);color:var(--txt-2)}
-  .tag.error{background:rgba(210,153,34,.18);color:var(--warn)}
+  /* "Simulado" (nada ocurre) y "anulado" (irreversible) NUNCA deben pesar
+     igual: el primero es un contorno ámbar suave, el segundo un rojo sólido. */
+  .tag.would_delete{background:color-mix(in srgb,var(--caution) 14%,transparent);color:var(--caution);border:1px solid color-mix(in srgb,var(--caution) 45%,transparent)}
+  .tag.deleted{background:var(--danger-fill);color:var(--on-fill)}
+  .tag.protected{background:color-mix(in srgb,var(--prot) 10%,transparent);color:var(--prot)}
+  .tag.kept{background:color-mix(in srgb,var(--txt-2) 14%,transparent);color:var(--txt-2)}
+  .tag.error{background:color-mix(in srgb,var(--caution) 16%,transparent);color:var(--caution)}
   .tag.type{background:var(--bg-3);color:var(--txt-2)}
   .trunc{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .scroll{max-height:400px;overflow:auto}
 
   #log{
-    background:#0a0e14;border:1px solid var(--line);border-radius:8px;padding:12px;
+    background:var(--console-bg);border:1px solid var(--line);border-radius:8px;padding:12px;
     font-family:var(--mono);font-size:11.5px;line-height:1.7;height:290px;overflow-y:auto;
   }
   #log .ln{display:flex;gap:9px;padding:1px 0}
-  #log .t{color:var(--txt-3);flex-shrink:0}
+  #log .t{color:var(--console-txt-2);flex-shrink:0}
   #log .l{flex-shrink:0;width:52px;font-weight:700}
-  .INFO{color:var(--accent)} .WARNING{color:var(--warn)} .ERROR{color:var(--err)} .DEBUG{color:var(--txt-3)}
-  #log .m{color:var(--txt);word-break:break-word}
+  .INFO{color:var(--console-info)} .WARNING{color:var(--console-warn)} .ERROR{color:var(--console-err)} .DEBUG{color:var(--console-txt-2)}
+  #log .m{color:var(--console-txt);word-break:break-word}
 
   .bar{display:flex;align-items:center;gap:10px;margin-bottom:7px}
   .bar .nm{width:92px;font-size:11.5px;color:var(--txt-2);flex-shrink:0;text-align:right}
   .bar .track{flex:1;height:16px;background:var(--bg);border-radius:4px;overflow:hidden}
-  .bar .fill{height:100%;background:linear-gradient(90deg,var(--accent),#7aa7ff);border-radius:4px;transition:width .4s}
+  .bar .fill{height:100%;background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 60%,white));border-radius:4px;transition:width .4s}
   .bar .n{width:46px;font-size:11.5px;font-family:var(--mono);color:var(--txt-2)}
 
-  .quota{height:7px;background:var(--bg);border-radius:4px;overflow:hidden;margin-top:9px}
+  /* Cupo diario: no es una barra de carga cualquiera. Se dibuja segmentada,
+     como un limitador de ritmo, porque ir despacio es la protección real de
+     la cuenta (CLAUDE.md § 4) — no un detalle decorativo, sino lo que hace
+     que este panel se comporte de forma distinta a un progreso normal. */
+  .quota{height:8px;background:var(--bg);border-radius:4px;overflow:hidden;margin-top:9px;position:relative}
   .quota i{display:block;height:100%;background:var(--ok);transition:width .4s}
-  .quota i.hi{background:var(--warn)} .quota i.full{background:var(--err)}
+  .quota i.hi{background:var(--caution)} .quota i.full{background:var(--danger)}
+  .quota::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background-image:repeating-linear-gradient(90deg,
+      color-mix(in srgb,var(--bg-2) 70%,transparent) 0 1.5px, transparent 1.5px calc(100%/20));
+  }
 
   .rule{border:1px solid var(--line);border-radius:9px;padding:14px;margin-bottom:11px;background:var(--bg-3)}
   .rule.off{opacity:.5}
@@ -164,10 +241,10 @@
   .ord{font-family:var(--mono);color:var(--txt-3);font-size:11px;width:20px}
 
   .banner{padding:11px 14px;border-radius:8px;font-size:12.5px;margin-bottom:14px;line-height:1.55}
-  .banner.warn{background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.35);color:#e3b341}
-  .banner.err{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.35);color:#ff7b72}
-  .banner.info{background:rgba(76,141,255,.1);border:1px solid rgba(76,141,255,.3);color:#79b8ff}
-  .banner.ok{background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.35);color:#56d364}
+  .banner.warn{background:color-mix(in srgb,var(--caution) 10%,transparent);border:1px solid color-mix(in srgb,var(--caution) 35%,transparent);color:var(--caution)}
+  .banner.err{background:color-mix(in srgb,var(--danger) 10%,transparent);border:1px solid color-mix(in srgb,var(--danger) 35%,transparent);color:var(--danger)}
+  .banner.info{background:color-mix(in srgb,var(--accent) 10%,transparent);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);color:var(--accent)}
+  .banner.ok{background:color-mix(in srgb,var(--ok) 10%,transparent);border:1px solid color-mix(in srgb,var(--ok) 35%,transparent);color:var(--ok)}
 
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
   .modal.on{display:flex}
@@ -176,7 +253,7 @@
   .empty{text-align:center;padding:36px 20px;color:var(--txt-3);font-size:13px}
   .toast{position:fixed;bottom:22px;right:22px;background:var(--bg-3);border:1px solid var(--line);border-left:3px solid var(--ok);padding:12px 18px;border-radius:8px;font-size:13px;z-index:200;opacity:0;transform:translateY(12px);transition:.25s;pointer-events:none}
   .toast.on{opacity:1;transform:none}
-  .toast.bad{border-left-color:var(--err)}
+  .toast.bad{border-left-color:var(--danger)}
   @media(max-width:820px){aside{width:58px}.brand h1,.brand small,nav button span:not(.ico),.side-foot{display:none}nav button{justify-content:center}}
 </style>
 </head>
@@ -188,12 +265,12 @@
     <small>control plane v2</small>
   </div>
   <nav>
-    <button class="on" data-p="panel"><span class="ico">◧</span><span>Panel</span></button>
-    <button data-p="rules"><span class="ico">⚖</span><span>Reglas</span></button>
-    <button data-p="white"><span class="ico">🛡</span><span>Whitelist</span></button>
-    <button data-p="scope"><span class="ico">◎</span><span>Alcance</span></button>
-    <button data-p="audit"><span class="ico">▤</span><span>Auditoría</span></button>
-    <button data-p="settings"><span class="ico">⚙</span><span>Ajustes</span></button>
+    <button class="on" data-p="panel" aria-label="Panel"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M3 14a7 7 0 0 1 14 0"/><path d="M10 14 13 8.5"/><circle cx="10" cy="14" r="1.1" fill="currentColor" stroke="none"/></svg></span><span>Panel</span></button>
+    <button data-p="rules" aria-label="Reglas"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4 4h12l-4.5 6.2v4.8l-3 1.5v-6.3z"/></svg></span><span>Reglas</span></button>
+    <button data-p="white" aria-label="Whitelist"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 3l5.5 2v4.3c0 3.9-2.4 6.5-5.5 7.6-3.1-1.1-5.5-3.7-5.5-7.6V5z"/><path d="M7.4 10.1 9.2 12l3.4-3.8"/></svg></span><span>Whitelist</span></button>
+    <button data-p="scope" aria-label="Alcance"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.3"/><circle cx="10" cy="10" r="3"/><circle cx="10" cy="10" r=".7" fill="currentColor" stroke="none"/></svg></span><span>Alcance</span></button>
+    <button data-p="audit" aria-label="Auditoría"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="4" y="3" width="12" height="14" rx="1.6"/><path d="M7 7.2h6M7 10h6M7 12.8h4"/></svg></span><span>Auditoría</span></button>
+    <button data-p="settings" aria-label="Ajustes"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.5"/><path d="M10 3.3v1.9M10 14.8v1.9M16.7 10h-1.9M5.2 10H3.3M14.7 5.3l-1.4 1.4M6.7 13.3l-1.4 1.4M14.7 14.7l-1.4-1.4M6.7 6.7 5.3 5.3"/></svg></span><span>Ajustes</span></button>
   </nav>
   <div class="side-foot"><span class="dot" id="conn-dot"></span><span id="conn-txt">conectando…</span></div>
 </aside>
@@ -213,11 +290,11 @@
       <h3>Control de ejecución</h3>
       <p class="hint">Empieza siempre con una simulación. No toca nada: solo te dice qué se borraría y por qué.</p>
       <div class="row">
-        <button class="btn primary" id="b-sim">▶ Simular</button>
-        <button class="btn danger" id="b-real">⚠ Borrado real</button>
-        <button class="btn" id="b-pause" disabled>⏸ Pausar</button>
-        <button class="btn" id="b-resume" disabled style="display:none">▶ Reanudar</button>
-        <button class="btn ghost" id="b-stop" disabled>⏹ Parar</button>
+        <button class="btn primary" id="b-sim"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 4.5v11l9-5.5z" fill="currentColor"/></svg> Simular</button>
+        <button class="btn danger" id="b-real"><svg viewBox="0 0 20 20" aria-hidden="true" class="ico-stroke"><path d="M10 3.5 17.5 16h-15z"/><path d="M10 8.2v4"/><circle cx="10" cy="14.3" r=".9" fill="currentColor" stroke="none"/></svg> Borrado real</button>
+        <button class="btn" id="b-pause" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5.5" y="4.5" width="3" height="11" rx=".8" fill="currentColor"/><rect x="11.5" y="4.5" width="3" height="11" rx=".8" fill="currentColor"/></svg> Pausar</button>
+        <button class="btn" id="b-resume" disabled style="display:none"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 4.5v11l9-5.5z" fill="currentColor"/></svg> Reanudar</button>
+        <button class="btn ghost" id="b-stop" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor"/></svg> Parar</button>
         <span style="margin-left:auto;color:var(--txt-3);font-size:12px;text-align:right">
           <span id="current-thread"></span><br>
           <span id="page-progress" style="font-size:11px"></span>
@@ -227,7 +304,7 @@
 
     <div class="grid kpis" style="margin-bottom:18px">
       <div class="kpi"><div class="lbl">Examinados</div><div class="val" id="k-scan">0</div><div class="sub" id="k-thr">0 / 0 chats</div></div>
-      <div class="kpi del"><div class="lbl" id="k-del-lbl">A borrar</div><div class="val" id="k-del">0</div><div class="sub" id="k-rate">— /min</div></div>
+      <div class="kpi del" id="k-del-kpi"><div class="lbl" id="k-del-lbl">A borrar</div><div class="val" id="k-del">0</div><div class="sub" id="k-rate">— /min</div></div>
       <div class="kpi prot"><div class="lbl">Protegidos</div><div class="val" id="k-prot">0</div><div class="sub">whitelist</div></div>
       <div class="kpi keep"><div class="lbl">Descartados</div><div class="val" id="k-keep">0</div><div class="sub">no casan reglas</div></div>
       <div class="kpi err"><div class="lbl">Errores</div><div class="val" id="k-err">0</div><div class="sub" id="k-done">0 ya hechos</div></div>
@@ -286,7 +363,7 @@
   <!-- ============ WHITELIST ============ -->
   <section class="page" id="p-white">
     <div class="banner warn">
-      <b>🛡 Prioridad absoluta.</b> Lo que caiga aquí no se borra jamás, aunque una regla diga lo contrario.
+      <b><svg viewBox="0 0 20 20" aria-hidden="true" class="ico-stroke ico-inline"><path d="M10 3l5.5 2v4.3c0 3.9-2.4 6.5-5.5 7.6-3.1-1.1-5.5-3.7-5.5-7.6V5z"/><path d="M7.4 10.1 9.2 12l3.4-3.8"/></svg> Prioridad absoluta.</b> Lo que caiga aquí no se borra jamás, aunque una regla diga lo contrario.
       Es tu red de seguridad: úsala para conversaciones o contenidos que no te puedes permitir perder.
     </div>
 
@@ -442,7 +519,7 @@
 
 <div class="modal" id="modal">
   <div class="box">
-    <h3>⚠ Confirmar borrado real</h3>
+    <h3><svg viewBox="0 0 20 20" aria-hidden="true" class="ico-stroke" style="width:16px;height:16px;vertical-align:-3px"><path d="M10 3.5 17.5 16h-15z"/><path d="M10 8.2v4"/><circle cx="10" cy="14.3" r=".9" fill="currentColor" stroke="none"/></svg> Confirmar borrado real</h3>
     <div class="banner err" style="margin-bottom:14px">
       Esto anula mensajes de verdad y <b>no se puede deshacer</b>. Desaparecerán también para la otra persona.
       Asegúrate de haber corrido antes una simulación y de tener tu copia de datos descargada.
@@ -538,6 +615,9 @@ function applyStatus(s) {
   $('#mode-badge').className = 'mode ' + (dry ? 'sim' : 'real');
   $('#mode-badge').textContent = dry ? 'SIMULACIÓN' : 'BORRADO REAL';
   $('#k-del-lbl').textContent = dry ? 'A borrar (sim.)' : 'Anulados';
+  // El KPI de borrado es ámbar en simulación (nada ha pasado) y solo se
+  // vuelve rojo cuando el borrado es real e irreversible.
+  $('#k-del-kpi').classList.toggle('real', !dry);
 
   const busy = !!s.busy, paused = st === 'paused';
   $('#b-sim').disabled = busy; $('#b-real').disabled = busy;
@@ -600,7 +680,7 @@ function ruleCard(rule, i) {
   const types = (META.known_types || []).map(t =>
     `<label class="chip t" style="cursor:pointer">
        <input type="checkbox" data-t="${t}" ${(w.types||[]).includes(t)?'checked':''}
-              style="margin:0;width:11px;height:11px;accent-color:#4c8dff">${t}</label>`).join('');
+              style="margin:0;width:14px;height:14px;accent-color:var(--accent)">${t}</label>`).join('');
   return `<div class="rule ${rule.enabled===false?'off':''}" data-i="${i}">
     <div class="rule-head">
       <span class="ord">${i+1}</span>
@@ -609,10 +689,10 @@ function ruleCard(rule, i) {
         <option value="delete" ${rule.action==='delete'?'selected':''}>🗑 delete</option>
         <option value="keep" ${rule.action==='keep'?'selected':''}>✓ keep</option>
       </select>
-      <label class="switch" style="padding:0"><input type="checkbox" class="en" ${rule.enabled!==false?'checked':''}></label>
-      <button class="btn sm ghost up">↑</button>
-      <button class="btn sm ghost down">↓</button>
-      <button class="btn sm danger del">✕</button>
+      <label class="switch" style="padding:0"><input type="checkbox" class="en" aria-label="Regla activada" ${rule.enabled!==false?'checked':''}></label>
+      <button class="btn sm ghost up" aria-label="Subir regla" title="Subir">↑</button>
+      <button class="btn sm ghost down" aria-label="Bajar regla" title="Bajar">↓</button>
+      <button class="btn sm danger del" aria-label="Eliminar regla" title="Eliminar">✕</button>
     </div>
     <label class="switch" style="padding:2px 0 8px">
       <input type="checkbox" class="catch" ${w.catch_all?'checked':''}>
@@ -742,7 +822,7 @@ function renderWhitelist() {
   $('#wl-types').innerHTML = (META.known_types||[]).map(t =>
     `<label class="chip t" style="cursor:pointer">
        <input type="checkbox" data-t="${t}" ${(m.types||[]).includes(t)?'checked':''}
-              style="margin:0;width:11px;height:11px;accent-color:#4c8dff">${t}</label>`).join('');
+              style="margin:0;width:14px;height:14px;accent-color:var(--accent)">${t}</label>`).join('');
   $('#wl-keywords').value = (m.keywords_any||[]).join('\n');
   $('#wl-regex').value = (m.regex_any||[]).join('\n');
   $('#wl-threads').value = (m.threads||[]).join('\n');
@@ -752,9 +832,9 @@ function renderWhitelist() {
 
 function drawUsers() {
   $('#wl-users').innerHTML = wlUsers.length
-    ? wlUsers.map((u,i) => `<span class="chip">@${esc(u)}<b data-i="${i}">✕</b></span>`).join('')
+    ? wlUsers.map((u,i) => `<span class="chip">@${esc(u)}<button type="button" data-i="${i}" aria-label="Quitar a ${esc(u)} de protegidos">✕</button></span>`).join('')
     : '<span style="font-size:12px;color:var(--txt-3)">Ninguno. Los chats con estas personas quedarían intactos.</span>';
-  $$('#wl-users b').forEach(b => b.onclick = () => { wlUsers.splice(+b.dataset.i,1); drawUsers(); });
+  $$('#wl-users button').forEach(b => b.onclick = () => { wlUsers.splice(+b.dataset.i,1); drawUsers(); });
 }
 
 $('#wl-users-in').onkeydown = e => {
@@ -814,7 +894,7 @@ $('#b-load-threads').onclick = async () => {
         <td style="font-family:var(--mono);font-size:11px;color:var(--txt-3)">${esc(t.id)}</td>
         <td class="row">
           <button class="btn sm only" data-id="${esc(t.id)}">Solo este</button>
-          <button class="btn sm ghost prot" data-u="${esc(t.usernames[0]||'')}">🛡 Proteger</button>
+          <button class="btn sm ghost prot" data-u="${esc(t.usernames[0]||'')}"><svg viewBox="0 0 20 20" aria-hidden="true" class="ico-stroke"><path d="M10 3l5.5 2v4.3c0 3.9-2.4 6.5-5.5 7.6-3.1-1.1-5.5-3.7-5.5-7.6V5z"/><path d="M7.4 10.1 9.2 12l3.4-3.8"/></svg> Proteger</button>
         </td></tr>`).join('')}
       </tbody></table></div>`;
     $$('#thread-picker .only').forEach(b => b.onclick = () => {
@@ -906,7 +986,7 @@ $('#b-real').onclick = () => {
     `Reglas activas: <b>${STATUS.rules_active ?? 0}</b> de ${STATUS.rules_total ?? 0}.<br>
      Cupo restante hoy: <b>${STATUS.quota?.remaining_today ?? '?'}</b> mensajes.<br>
      ${s.would_delete ? `Tu última simulación marcó <b>${s.would_delete}</b> mensajes.` :
-       '<span style="color:var(--warn)">No consta ninguna simulación en esta sesión. Te recomiendo correr una antes.</span>'}`;
+       '<span style="color:var(--caution)">No consta ninguna simulación en esta sesión. Te recomiendo correr una antes.</span>'}`;
   $('#confirm-in').value = ''; $('#b-confirm').disabled = true;
   $('#modal').classList.add('on'); $('#confirm-in').focus();
 };
@@ -914,6 +994,10 @@ $('#b-real').onclick = () => {
 $('#confirm-in').oninput = e => $('#b-confirm').disabled = e.target.value.trim() !== 'BORRAR';
 $('#b-cancel').onclick = () => $('#modal').classList.remove('on');
 $('#modal').onclick = e => { if (e.target.id === 'modal') $('#modal').classList.remove('on'); };
+// Escape cierra el modal como cualquier alerta del sistema (alerts.md).
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('#modal').classList.contains('on')) $('#modal').classList.remove('on');
+});
 
 $('#b-confirm').onclick = async () => {
   try {
