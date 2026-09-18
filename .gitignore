@@ -1,0 +1,18 @@
+# Credenciales y estado generado — nunca se commitean (ver CLAUDE.md § 9)
+config.yaml
+config.yaml.bak
+session.json
+state.json
+audit.jsonl
+*.log
+
+# ig-espejo: fotos fijas de seguidores. Son datos personales de terceros
+# (quién te sigue y quién no), no material de repositorio.
+ig-espejo/snapshots/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/

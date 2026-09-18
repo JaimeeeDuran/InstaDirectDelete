@@ -126,6 +126,11 @@ class ScopeCfg:
     only_thread_ids: List[str] = field(default_factory=list)
     skip_thread_ids: List[str] = field(default_factory=list)
     include_requests: bool = False   # bandeja de solicitudes
+    # --- Paginación (MEJORA 1) ---
+    use_pagination: bool = True      # usar paginación por cursor (más confiable)
+    page_size: int = 20              # mensajes por petición a la API privada
+    max_pages_per_thread: int = 0    # 0 = paginar hasta el fondo
+    resume_cursors: bool = True      # reanudar desde el cursor guardado
 
 
 @dataclass

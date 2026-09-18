@@ -755,3 +755,34 @@ No las implementes sin preguntar al usuario primero.
 5. Si tocaste la ruta de borrado, añade tests y **revisa que la whitelist sigue
    ganando**.
 6. Ningún archivo con credenciales o estado en el commit.
+
+---
+
+## Herramienta hermana: `ig-espejo/`
+
+En el mismo repositorio, pero **independiente**: carpeta propia, `config.yaml`
+propio, panel propio (puerto 8788) y tests propios. No comparte código con
+ig-unsender; sí comparte la **sesión** (`session.file: "../session.json"`),
+porque dos logins distintos duplicarían justo la señal que más sospechas
+levanta.
+
+Analiza seguidores: mutuos, quién no te sigue de vuelta, quién te dejó de
+seguir entre escaneos y quién se fue y ha vuelto, más una heurística de cuentas
+sospechosas con motivos legibles. Guarda una foto fija por escaneo en
+`ig-espejo/snapshots/` (ignorado por git: son datos personales de terceros).
+
+**Es de solo lectura por decisión de diseño.** No sigue, no deja de seguir, no
+bloquea. Si algún día se añade dejar de seguir en bloque, tiene que pasar por la
+misma ceremonia que el borrado: simulación primero, confirmación escrita y cupo
+diario.
+
+Antes de darla por terminada: `cd ig-espejo && python test_analysis.py` (40 tests,
+sin red ni credenciales).
+
+### Nota transversal sobre los tests
+
+`test_engine.py` se ejecuta **con y sin `instagrapi` instalado**, y debe pasar en
+los dos casos: `src/pagination.py` usa el extractor real de la librería cuando
+está disponible y uno propio de respaldo cuando no. Por eso el `FakeClient` imita
+la forma real de la API (`item_id`, timestamp en microsegundos) y no una
+simplificada: un doble infiel haría pasar los tests mintiendo sobre producción.

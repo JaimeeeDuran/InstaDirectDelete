@@ -32,10 +32,19 @@ dashboard:
 # ---------------------------------------------------------------------------
 scope:
   threads_amount: 0        # nº de chats a procesar. 0 = todos
-  messages_per_thread: 0   # nº de mensajes por chat. 0 = todos
+  messages_per_thread: 0   # nº de mensajes por chat. 0 = todos (solo aplica sin paginación)
   only_thread_ids: []      # si pones IDs, SOLO se procesan esos (ideal para probar)
   skip_thread_ids: []      # IDs que se saltan siempre
   include_requests: false  # incluir la bandeja de solicitudes
+  # --- Paginación por cursor (hilos muy largos) ---
+  # direct_messages() de instagrapi no siempre llega al fondo en hilos con
+  # años de conversación. La paginación explícita por cursor sí, y además
+  # permite reanudar exactamente donde se quedó si se corta la ejecución.
+  use_pagination: true        # false = vuelve al método antiguo (direct_messages)
+  page_size: 20                # mensajes por petición a la API privada
+  max_pages_per_thread: 0      # tope de páginas por hilo. 0 = hasta el fondo
+  resume_cursors: true         # reanudar desde el cursor guardado en vez de
+                                # empezar cada hilo desde cero
 
 # ---------------------------------------------------------------------------
 # COMPORTAMIENTO — ritmo, reintentos y frenos de seguridad

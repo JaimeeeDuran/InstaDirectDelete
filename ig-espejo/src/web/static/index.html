@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ig-espejo · Análisis de seguidores</title>
+<!-- Favicon embebido: la órbita de la herramienta. Va como data URI para no
+     pedirle un archivo más al servidor ni depender de nada externo. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%235b9dff' stroke-width='1.6' opacity='.45'/%3E%3Ccircle cx='16' cy='16' r='7.5' fill='none' stroke='%235b9dff' stroke-width='1.6' opacity='.7'/%3E%3Ccircle cx='16' cy='16' r='3.4' fill='%235b9dff'/%3E%3Ccircle cx='16' cy='3' r='2.1' fill='%234cc26a'/%3E%3Ccircle cx='28.5' cy='19' r='2.1' fill='%23e8a33d'/%3E%3C/svg%3E">
+<style>
+  /* ---------------------------------------------------------------------
+     Mismos tokens que el panel de ig-unsender: las dos herramientas son la
+     misma familia y deben leerse igual. Contrastes verificados (WCAG) en
+     ambas apariencias.
+
+     Gramática de color DE ESTA herramienta:
+       --ok       verde  → lo correspondido (mutuos, reciprocidad)
+       --accent   azul   → navegación e interactivo, y los "fans"
+       --caution  ámbar  → lo no correspondido y los indicios medios
+       --danger   rojo   → PÉRDIDA (te dejaron de seguir) e indicios altos
+
+     Ojo: en ig-unsender el rojo está reservado a lo irreversible. Aquí puede
+     significar "pérdida" porque esta herramienta no borra ni modifica nada:
+     es de solo lectura, no hay ninguna acción que arrepentirse de haber hecho.
+  --------------------------------------------------------------------- */
+  :root{
+    --bg:#121316; --bg-2:#1a1b1f; --bg-3:#212328; --line:#33353c;
+    --txt:#f2f1ee; --txt-2:#adadb3; --txt-3:#8b8b93;
+    --accent:#5b9dff; --accent-fill:#2a63cc;
+    --caution:#e8a33d; --danger:#ff6b60; --danger-fill:#c02f24;
+    --ok:#4cc26a; --prot:#b58af5;
+    --on-fill:#ffffff;
+    --console-bg:#1c1d20; --console-txt:#e4e4e0; --console-txt-2:#8b8b93;
+    --console-info:#5b9dff; --console-warn:#e8a33d; --console-err:#ff6b60;
+    --radius:10px;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f5f5f7; --bg-2:#ffffff; --bg-3:#eef0f2; --line:#d9d9de;
+      --txt:#1d1d1f; --txt-2:#55555a; --txt-3:#656569;
+      --accent:#0066cc; --accent-fill:#0066cc;
+      --caution:#9a5b00; --danger:#c62c22; --danger-fill:#c62c22;
+      --ok:#1c7a3e; --prot:#7c3fc4;
+      color-scheme: light;
+    }
+  }
+  @media (prefers-contrast: more){ :root{ --line:#585a63; --txt-3:#a3a3aa; } }
+  @media (prefers-contrast: more) and (prefers-color-scheme: light){
+    :root{ --line:#9a9aa0; --txt-3:#47474b; }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--txt);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;min-height:100vh;
+  }
+  button,input,select,textarea{font:inherit;color:inherit}
+  a{color:var(--accent)}
+  :focus{outline:none}
+  a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
+  textarea:focus-visible,[tabindex]:focus-visible{
+    outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;
+  }
+  .switch input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;
+      transition-duration:.001ms !important}
+  }
+
+  /* ---------- sidebar ---------- */
+  aside{
+    width:224px;flex-shrink:0;background:var(--bg-2);
+    border-right:1px solid var(--line);display:flex;flex-direction:column;
+    position:sticky;top:0;height:100vh;
+  }
+  .brand{padding:18px 20px;border-bottom:1px solid var(--line)}
+  .brand h1{font-size:15px;font-weight:650;letter-spacing:-.2px}
+  .brand small{color:var(--txt-3);font-size:11px}
+  nav{padding:10px;flex:1}
+  nav button{
+    display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;
+    background:none;border:0;border-radius:8px;color:var(--txt-2);
+    cursor:pointer;text-align:left;font-size:13.5px;margin-bottom:2px;
+  }
+  nav button:hover{background:var(--bg-3);color:var(--txt)}
+  nav button.on{background:var(--accent-fill);color:var(--on-fill);font-weight:550}
+  nav .ico{width:16px;display:inline-flex;flex-shrink:0}
+  nav .ico svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;
+    stroke-linecap:round;stroke-linejoin:round}
+  nav .n{margin-left:auto;font-size:11px;font-family:var(--mono);color:var(--txt-3)}
+  nav button.on .n{color:rgba(255,255,255,.75)}
+  .side-foot{padding:14px 16px;border-top:1px solid var(--line);font-size:11px;color:var(--txt-3)}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--danger);margin-right:6px}
+  .dot.live{background:var(--ok)}
+
+  /* ---------- layout ---------- */
+  main{flex:1;min-width:0;display:flex;flex-direction:column}
+  header{
+    display:flex;align-items:center;gap:12px;padding:14px 26px;
+    border-bottom:1px solid var(--line);background:var(--bg-2);
+    position:sticky;top:0;z-index:20;flex-wrap:wrap;
+  }
+  header h2{font-size:16px;font-weight:600;margin-right:auto}
+  .pill{
+    display:inline-flex;align-items:center;gap:7px;padding:5px 12px;
+    border-radius:999px;font-size:12px;font-weight:600;
+    background:var(--bg-3);border:1px solid var(--line);
+  }
+  .pill .led{width:7px;height:7px;border-radius:50%;background:var(--txt-3)}
+  .pill.run{border-color:var(--accent);color:var(--accent)} .pill.run .led{background:var(--accent)}
+  .pill.ok{border-color:var(--ok);color:var(--ok)} .pill.ok .led{background:var(--ok)}
+  .pill.err{border-color:var(--danger);color:var(--danger)} .pill.err .led{background:var(--danger)}
+  .target{font-family:var(--mono);font-size:11.5px;padding:5px 10px;border-radius:6px;
+    background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);
+    border:1px solid color-mix(in srgb,var(--accent) 30%,transparent)}
+  .readonly{font-size:11px;color:var(--txt-3);display:inline-flex;align-items:center;gap:5px}
+  .readonly svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.7;
+    stroke-linecap:round;stroke-linejoin:round}
+  section.page{padding:24px 26px;display:none;flex:1;overflow:auto}
+  section.page.on{display:block}
+
+  /* ---------- componentes ---------- */
+  .card{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:18px}
+  .card h3{font-size:13px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .card .hint{font-size:12px;color:var(--txt-3);margin-bottom:14px;line-height:1.5}
+  .grid{display:grid;gap:12px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(132px,1fr))}
+  .kpi{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+  .kpi .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--txt-3);margin-bottom:6px}
+  .kpi .val{font-size:26px;font-weight:650;font-family:var(--mono);letter-spacing:-1px}
+  .kpi .sub{font-size:11px;color:var(--txt-3);margin-top:3px}
+  .kpi.mut .val{color:var(--ok)} .kpi.uni .val{color:var(--caution)}
+  .kpi.fan .val{color:var(--accent)} .kpi.sus .val{color:var(--danger)}
+  .delta{font-family:var(--mono);font-size:11px;font-weight:650}
+  .delta.up{color:var(--ok)} .delta.down{color:var(--danger)} .delta.flat{color:var(--txt-3)}
+
+  .btn{
+    padding:8px 15px;border-radius:7px;border:1px solid var(--line);
+    background:var(--bg-3);cursor:pointer;font-size:13px;font-weight:550;
+    transition:.12s;display:inline-flex;align-items:center;gap:7px;
+  }
+  .btn svg{width:13px;height:13px;flex-shrink:0;fill:none;stroke:currentColor;
+    stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .btn:hover:not(:disabled){border-color:var(--accent);transform:translateY(-1px)}
+  .btn:disabled{opacity:.38;cursor:not-allowed}
+  .btn.primary{background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-fill)}
+  .btn.ghost{background:none}
+  .btn.sm{padding:5px 11px;font-size:12px}
+  .row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+
+  label.f{display:block;margin-bottom:12px}
+  label.f > span{display:block;font-size:12px;color:var(--txt-2);margin-bottom:5px;font-weight:500}
+  label.f small{color:var(--txt-3);font-weight:400}
+  input[type=text],input[type=number],input[type=password],select,textarea{
+    width:100%;padding:8px 11px;background:var(--bg);border:1px solid var(--line);
+    border-radius:7px;font-size:13px;
+  }
+  textarea{font-family:var(--mono);font-size:12px;resize:vertical;min-height:60px}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:0 16px}
+  .switch{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;padding:7px 0}
+  .switch input{appearance:none;width:38px;height:21px;background:var(--bg-3);border:1px solid var(--line);
+    border-radius:999px;position:relative;cursor:pointer;flex-shrink:0;transition:.15s}
+  .switch input:checked{background:var(--accent-fill);border-color:var(--accent-fill)}
+  .switch input::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;
+    border-radius:50%;background:var(--txt);transition:.15s}
+  .switch input:checked::after{left:19px;background:#fff}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+  .chip{background:var(--bg-3);border:1px solid var(--line);border-radius:999px;padding:3px 10px;
+    font-size:11.5px;display:inline-flex;align-items:center;gap:6px}
+  .chip button{background:none;border:0;padding:0;cursor:pointer;color:var(--txt-3);font-weight:700;line-height:1}
+  .chip button:hover{color:var(--danger)}
+
+  /* filtros de categoría */
+  .segs{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg-3)}
+  .segs button{background:none;border:0;padding:7px 13px;cursor:pointer;font-size:12.5px;
+    color:var(--txt-2);border-right:1px solid var(--line)}
+  .segs button:last-child{border-right:0}
+  .segs button.on{background:var(--accent-fill);color:var(--on-fill);font-weight:600}
+  .segs button .c{font-family:var(--mono);font-size:11px;opacity:.75;margin-left:5px}
+
+  /* lista de personas */
+  .people{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .person{display:flex;align-items:center;gap:11px;padding:9px 12px;background:var(--bg-2)}
+  .person:hover{background:var(--bg-3)}
+  .mono-av{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;
+    font-size:11.5px;font-weight:650;color:#fff;letter-spacing:-.3px}
+  .person .who{min-width:0;flex:1}
+  .person .u{font-weight:550;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .person .fn{font-size:11.5px;color:var(--txt-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .person .tags{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+  .tag{display:inline-block;padding:2px 7px;border-radius:5px;font-size:10.5px;font-weight:650;
+    font-family:var(--mono);text-transform:uppercase;letter-spacing:.3px;border:1px solid transparent}
+  .tag.ver{background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent)}
+  .tag.priv{background:color-mix(in srgb,var(--txt-2) 14%,transparent);color:var(--txt-2)}
+  .tag.prot{background:color-mix(in srgb,var(--prot) 12%,transparent);color:var(--prot)}
+  .tag.alto{background:var(--danger-fill);color:var(--on-fill)}
+  .tag.medio{background:color-mix(in srgb,var(--caution) 14%,transparent);color:var(--caution);
+    border-color:color-mix(in srgb,var(--caution) 45%,transparent)}
+  .tag.nuevo{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
+  .tag.perdido{background:color-mix(in srgb,var(--danger) 14%,transparent);color:var(--danger);
+    border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+  .tag.vuelto{background:color-mix(in srgb,var(--prot) 14%,transparent);color:var(--prot)}
+  .motivos{font-size:11.5px;color:var(--txt-3);margin-top:2px}
+  .score{font-family:var(--mono);font-size:13px;font-weight:650;width:34px;text-align:right;flex-shrink:0}
+  .score.alto{color:var(--danger)} .score.medio{color:var(--caution)}
+
+  .empty{text-align:center;padding:34px 20px;color:var(--txt-3);font-size:13px;line-height:1.6}
+  .scroll{max-height:520px;overflow:auto}
+
+  /* consola */
+  #log{background:var(--console-bg);border:1px solid var(--line);border-radius:8px;padding:12px;
+    font-family:var(--mono);font-size:11.5px;line-height:1.7;height:190px;overflow-y:auto}
+  #log .ln{display:flex;gap:9px;padding:1px 0}
+  #log .t{color:var(--console-txt-2);flex-shrink:0}
+  #log .m{color:var(--console-txt);word-break:break-word}
+  .INFO{color:var(--console-info)} .WARNING{color:var(--console-warn)} .ERROR{color:var(--console-err)}
+
+  .banner{padding:11px 14px;border-radius:8px;font-size:12.5px;margin-bottom:14px;line-height:1.55}
+  .banner.info{background:color-mix(in srgb,var(--accent) 10%,transparent);
+    border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);color:var(--accent)}
+  .banner.warn{background:color-mix(in srgb,var(--caution) 10%,transparent);
+    border:1px solid color-mix(in srgb,var(--caution) 35%,transparent);color:var(--caution)}
+  .toast{position:fixed;bottom:22px;right:22px;background:var(--bg-3);border:1px solid var(--line);
+    border-left:3px solid var(--ok);padding:12px 18px;border-radius:8px;font-size:13px;z-index:200;
+    opacity:0;transform:translateY(12px);transition:.25s;pointer-events:none}
+  .toast.on{opacity:1;transform:none}
+  .toast.bad{border-left-color:var(--danger)}
+
+  /* órbita */
+  .orbit-wrap{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+  .orbit{flex-shrink:0}
+  .orbit .guide{fill:none;stroke:var(--line)}
+  .orbit .me{fill:var(--accent-fill)}
+  .orbit .me-txt{fill:#fff;font:650 13px var(--mono);text-anchor:middle;dominant-baseline:central}
+  .orbit circle.p{transition:r .2s}
+  .orbit circle.p:hover{r:5}
+  .leyenda{display:grid;gap:10px;min-width:190px}
+  .leyenda .it{display:flex;align-items:center;gap:9px}
+  .leyenda .sw{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .leyenda .n{font-family:var(--mono);font-weight:650;font-size:15px;min-width:52px}
+  .leyenda .d{font-size:12px;color:var(--txt-3);line-height:1.35}
+  .lectura{flex:1;min-width:230px;max-width:420px;border-left:1px solid var(--line);padding-left:22px}
+  .lectura p{font-size:13.5px;line-height:1.55;margin-bottom:9px;color:var(--txt-2)}
+  .lectura p:last-child{margin-bottom:0}
+  .lectura b{color:var(--txt);font-weight:650}
+
+  /* sparkline */
+  .spark{width:100%;height:92px;display:block}
+  .spark .area{fill:color-mix(in srgb,var(--accent) 16%,transparent)}
+  .spark .line{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+  .spark .pt{fill:var(--accent)}
+
+  @media(max-width:860px){
+    aside{width:58px}
+    .brand h1,.brand small,nav button span:not(.ico),nav .n,.side-foot{display:none}
+    nav button{justify-content:center}
+  }
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="brand">
+    <h1>ig-espejo</h1>
+    <small>quién te devuelve el reflejo</small>
+  </div>
+  <nav>
+    <button class="on" data-p="resumen" aria-label="Resumen"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.3"/><circle cx="10" cy="10" r="2.2"/></svg></span><span>Resumen</span></button>
+    <button data-p="relaciones" aria-label="Relaciones"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><circle cx="7.2" cy="7.4" r="2.6"/><circle cx="13.4" cy="12.2" r="2.6"/><path d="M9.3 9.2l2.3 1.4"/></svg></span><span>Relaciones</span><span class="n" id="n-rel"></span></button>
+    <button data-p="movimientos" aria-label="Movimientos"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M3.5 13.5 8 9l3 3 4.5-5"/><path d="M12.5 7h3v3"/></svg></span><span>Movimientos</span><span class="n" id="n-mov"></span></button>
+    <button data-p="sospechosos" aria-label="Sospechosos"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 3.2 16.5 5.6v4.1c0 3.7-2.6 6.3-6.5 7.1-3.9-.8-6.5-3.4-6.5-7.1V5.6z"/><path d="M10 8v3"/><circle cx="10" cy="13.4" r=".8" fill="currentColor" stroke="none"/></svg></span><span>Sospechosos</span><span class="n" id="n-sus"></span></button>
+    <button data-p="ajustes" aria-label="Ajustes"><span class="ico" aria-hidden="true"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.5"/><path d="M10 3.3v1.9M10 14.8v1.9M16.7 10h-1.9M5.2 10H3.3M14.7 5.3l-1.4 1.4M6.7 13.3l-1.4 1.4M14.7 14.7l-1.4-1.4M6.7 6.7 5.3 5.3"/></svg></span><span>Ajustes</span></button>
+  </nav>
+  <div class="side-foot"><span class="dot" id="conn-dot"></span><span id="conn-txt">conectando…</span></div>
+</aside>
+
+<main>
+  <header>
+    <h2 id="page-title">Resumen</h2>
+    <span class="readonly" title="Esta herramienta no sigue, no deja de seguir y no borra nada">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4.5" y="8.8" width="11" height="7.2" rx="1.6"/><path d="M7.2 8.8V6.9a2.8 2.8 0 0 1 5.6 0v1.9"/></svg>
+      solo lectura
+    </span>
+    <span class="target" id="target-badge">—</span>
+    <span class="pill" id="state-pill"><i class="led"></i><span id="state-txt">en reposo</span></span>
+  </header>
+
+  <!-- ================= RESUMEN ================= -->
+  <section class="page on" id="p-resumen">
+    <div id="warn-box"></div>
+
+    <div class="card">
+      <h3>Escaneo</h3>
+      <p class="hint">Cada escaneo guarda una foto fija. Con dos ya sabes quién te dejó de seguir;
+        con tres, quién se fue y ha vuelto.</p>
+      <div class="row">
+        <button class="btn primary" id="b-scan"><svg viewBox="0 0 20 20"><circle cx="9" cy="9" r="5.4"/><path d="M13 13l3.4 3.4"/></svg> Escanear</button>
+        <button class="btn" id="b-scan-deep"><svg viewBox="0 0 20 20"><circle cx="9" cy="9" r="5.4"/><path d="M13 13l3.4 3.4"/><path d="M9 6.6v4.8M6.6 9h4.8"/></svg> Escaneo profundo</button>
+        <button class="btn ghost" id="b-stop" disabled><svg viewBox="0 0 20 20"><rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/></svg> Parar</button>
+        <span style="margin-left:auto;font-size:12px;color:var(--txt-3)" id="last-scan"></span>
+      </div>
+    </div>
+
+    <div class="grid kpis" style="margin-bottom:18px">
+      <div class="kpi"><div class="lbl">Seguidores</div><div class="val" id="k-seg">—</div><div class="sub" id="k-seg-d"></div></div>
+      <div class="kpi"><div class="lbl">Siguiendo</div><div class="val" id="k-sig">—</div><div class="sub" id="k-sig-d"></div></div>
+      <div class="kpi mut"><div class="lbl">Mutuos</div><div class="val" id="k-mut">—</div><div class="sub" id="k-rec"></div></div>
+      <div class="kpi uni"><div class="lbl">No te siguen</div><div class="val" id="k-uni">—</div><div class="sub">tú sí les sigues</div></div>
+      <div class="kpi fan"><div class="lbl">Fans</div><div class="val" id="k-fan">—</div><div class="sub">te siguen y tú no</div></div>
+      <div class="kpi sus"><div class="lbl">Con indicios</div><div class="val" id="k-sus">—</div><div class="sub" id="k-sus-sub">mira los motivos</div></div>
+    </div>
+
+    <div class="card">
+      <h3>Tu órbita</h3>
+      <p class="hint">Tú en el centro. Cada punto es una cuenta: cuanto más cerca, más recíproca
+        es la relación. Pasa el ratón por encima para ver quién es.</p>
+      <div class="orbit-wrap">
+        <svg class="orbit" id="orbit" width="330" height="330" viewBox="0 0 330 330" role="img"
+             aria-label="Diagrama de órbita con tus mutuos, fans y quienes no te siguen"></svg>
+        <div class="leyenda" id="orbit-leyenda"></div>
+        <div class="lectura" id="orbit-lectura"></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px" id="split">
+      <div class="card" style="margin:0">
+        <h3>Evolución</h3>
+        <p class="hint">Seguidores en cada escaneo guardado.</p>
+        <div id="spark-box"><div class="empty">Hará falta más de un escaneo.</div></div>
+      </div>
+      <div class="card" style="margin:0">
+        <h3>Registro</h3>
+        <p class="hint">Lo que va haciendo el escaneo, en vivo.</p>
+        <div id="log"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RELACIONES ================= -->
+  <section class="page" id="p-relaciones">
+    <div class="card">
+      <h3>Quién es quién</h3>
+      <p class="hint">Filtra, busca y expórtalo. Los <b>intocables</b> van marcados: nunca se les
+        señala ni se sugiere nada sobre ellos.</p>
+      <div class="row" style="margin-bottom:14px">
+        <div class="segs" id="seg-rel">
+          <button data-k="mutuos" class="on">Mutuos <span class="c" id="c-mutuos"></span></button>
+          <button data-k="no_te_siguen">No te siguen <span class="c" id="c-no_te_siguen"></span></button>
+          <button data-k="fans">Fans <span class="c" id="c-fans"></span></button>
+        </div>
+        <input type="text" id="q-rel" placeholder="Buscar usuario o nombre…" style="flex:1;min-width:180px">
+        <button class="btn sm ghost" id="b-csv-rel"><svg viewBox="0 0 20 20"><path d="M10 3.5v9"/><path d="M6.6 9.2 10 12.6l3.4-3.4"/><path d="M4.5 15.5h11"/></svg> CSV</button>
+      </div>
+      <div class="scroll"><div class="people" id="lista-rel"></div></div>
+    </div>
+  </section>
+
+  <!-- ================= MOVIMIENTOS ================= -->
+  <section class="page" id="p-movimientos">
+    <div class="banner info" id="mov-banner">Los movimientos comparan el último escaneo con el anterior.</div>
+    <div class="card">
+      <h3>Qué ha cambiado</h3>
+      <div class="row" style="margin-bottom:14px">
+        <div class="segs" id="seg-mov">
+          <button data-k="nuevos" class="on">Nuevos <span class="c" id="c-nuevos"></span></button>
+          <button data-k="perdidos">Te dejaron <span class="c" id="c-perdidos"></span></button>
+          <button data-k="recuperados">Recuperados <span class="c" id="c-recuperados"></span></button>
+          <button data-k="nuevos_seguidos">Empezaste a seguir <span class="c" id="c-nuevos_seguidos"></span></button>
+        </div>
+        <button class="btn sm ghost" id="b-csv-mov"><svg viewBox="0 0 20 20"><path d="M10 3.5v9"/><path d="M6.6 9.2 10 12.6l3.4-3.4"/><path d="M4.5 15.5h11"/></svg> CSV</button>
+      </div>
+      <div class="scroll"><div class="people" id="lista-mov"></div></div>
+    </div>
+  </section>
+
+  <!-- ================= SOSPECHOSOS ================= -->
+  <section class="page" id="p-sospechosos">
+    <div class="banner warn">
+      <b>Esto son indicios, no un veredicto.</b> Cada cuenta lleva sus motivos escritos:
+      léelos y decide tú. La puntuación solo sirve para ordenar la lista.
+    </div>
+    <div class="card">
+      <h3>Cuentas con indicios</h3>
+      <p class="hint" id="sus-hint"></p>
+      <div class="row" style="margin-bottom:14px">
+        <input type="text" id="q-sus" placeholder="Buscar…" style="flex:1;min-width:180px">
+        <button class="btn sm ghost" id="b-csv-sus"><svg viewBox="0 0 20 20"><path d="M10 3.5v9"/><path d="M6.6 9.2 10 12.6l3.4-3.4"/><path d="M4.5 15.5h11"/></svg> CSV</button>
+      </div>
+      <div class="scroll"><div class="people" id="lista-sus"></div></div>
+    </div>
+  </section>
+
+  <!-- ================= AJUSTES ================= -->
+  <section class="page" id="p-ajustes">
+    <div class="card">
+      <h3>Cuenta</h3>
+      <p class="hint">Se guarda en tu config.yaml local. La contraseña aparece enmascarada: déjala
+        tal cual si no la cambias. La sesión se comparte con ig-unsender para no loguearse dos veces.</p>
+      <div class="cols">
+        <label class="f"><span>Usuario</span><input type="text" id="ac-user"></label>
+        <label class="f"><span>Contraseña</span><input type="password" id="ac-pass"></label>
+        <label class="f"><span>Semilla TOTP <small>(2FA por app)</small></span><input type="password" id="ac-totp"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Escaneo</h3>
+      <p class="hint">El escaneo profundo pide el perfil cuenta por cuenta: da publicaciones, bio y
+        ratios, pero es lo que más rápido te lleva a un rate-limit. Por eso va acotado.</p>
+      <div class="cols">
+        <label class="f"><span>Cuenta a analizar <small>(vacío = la tuya)</small></span><input type="text" id="sc-target" placeholder="otra_cuenta"></label>
+        <label class="f"><span>Tope de cuentas en profundidad</span><input type="number" id="sc-deep-limit" min="0"></label>
+        <label class="f"><span>Pausa mínima (s)</span><input type="number" id="sc-dmin" step="0.5" min="0"></label>
+        <label class="f"><span>Pausa máxima (s)</span><input type="number" id="sc-dmax" step="0.5" min="0"></label>
+      </div>
+      <label class="switch"><input type="checkbox" id="sc-deep"><span>Escaneo profundo por defecto</span></label>
+    </div>
+
+    <div class="card">
+      <h3>Umbrales de los indicios</h3>
+      <p class="hint">A partir de cuánta puntuación aparece una cuenta en la lista y cuándo se
+        marca como alta.</p>
+      <div class="cols">
+        <label class="f"><span>Aparece en la lista desde</span><input type="number" id="su-medio" min="0" max="100"></label>
+        <label class="f"><span>Se marca como alta desde</span><input type="number" id="su-alto" min="0" max="100"></label>
+      </div>
+      <label class="switch"><input type="checkbox" id="su-on"><span>Analizar indicios de cuentas sospechosas</span></label>
+    </div>
+
+    <div class="card">
+      <h3>Intocables</h3>
+      <p class="hint">Tu gente. Nunca se les marca ni se sugiere nada sobre ellos. Escribe el
+        usuario sin arroba y pulsa Enter.</p>
+      <input type="text" id="wl-in" placeholder="mi_pareja">
+      <div class="chips" id="wl-chips"></div>
+    </div>
+
+    <div class="row"><button class="btn primary" id="b-save">Guardar ajustes</button></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===========================================================================
+// Utilidades
+// ===========================================================================
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const TOKEN = new URLSearchParams(location.search).get('token')
+           || (document.cookie.match(/espejo_token=([^;]+)/)||[])[1] || '';
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {'Content-Type':'application/json','Authorization':'Bearer '+TOKEN, ...(opts.headers||{})}
+  });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).error || msg; } catch(e){}
+    const err = new Error(msg); err.status = res.status; throw err;
+  }
+  return res.headers.get('content-type')?.includes('json') ? res.json() : res.text();
+}
+
+let toastTimer;
+function toast(msg, bad = false) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.className = 'toast on' + (bad ? ' bad' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = 'toast', 3400);
+}
+
+const esc = s => String(s??'').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+const hhmm = ts => new Date(ts*1000).toLocaleTimeString('es-ES',{hour12:false});
+const lines = t => (t||'').split('\n').map(s=>s.trim()).filter(Boolean);
+
+// Monograma determinista: mismas iniciales y mismo color para el mismo usuario,
+// sin pedirle ni una imagen a Instagram (funciona sin red y no filtra nada).
+function hash(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function monograma(r) {
+  const base = (r.full_name || r.username || '?').trim();
+  const iniciales = base.split(/\s+/).slice(0,2).map(p => p[0]||'').join('').toUpperCase() || '?';
+  const h = hash(r.username || base);
+  return {iniciales, color: `hsl(${h % 360} 45% 42%)`};
+}
+
+// ===========================================================================
+// Navegación
+// ===========================================================================
+const TITULOS = {resumen:'Resumen', relaciones:'Relaciones', movimientos:'Movimientos',
+                 sospechosos:'Cuentas con indicios', ajustes:'Ajustes'};
+$$('nav button').forEach(b => b.onclick = () => {
+  $$('nav button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  $$('.page').forEach(p => p.classList.remove('on'));
+  $('#p-' + b.dataset.p).classList.add('on');
+  $('#page-title').textContent = TITULOS[b.dataset.p];
+});
+
+// ===========================================================================
+// Estado
+// ===========================================================================
+let CFG = null, REP = null, STATUS = {};
+let relKey = 'mutuos', movKey = 'nuevos';
+
+async function refreshStatus() {
+  try {
+    STATUS = await api('/api/status');
+    aplicarEstado(STATUS);
+  } catch (e) { /* el SSE ya avisa de la desconexión */ }
+}
+
+function aplicarEstado(s) {
+  const st = s.state || 'idle';
+  const pill = $('#state-pill');
+  pill.className = 'pill ' + (['conectando','escaneando'].includes(st) ? 'run'
+    : st === 'listo' ? 'ok' : st === 'error' ? 'err' : '');
+  $('#state-txt').textContent = {idle:'en reposo', conectando:'conectando',
+    escaneando:'escaneando', listo:'listo', error:'error', detenido:'detenido'}[st] || st;
+
+  $('#target-badge').textContent = '@' + (s.objetivo || '—');
+  $('#b-scan').disabled = !!s.busy;
+  $('#b-scan-deep').disabled = !!s.busy;
+  $('#b-stop').disabled = !s.busy;
+  $('#last-scan').textContent = s.ultimo_escaneo
+    ? `Último escaneo: ${s.ultimo_escaneo.replace('T',' ')} · ${s.snapshots} guardados`
+    : 'Sin escaneos todavía';
+
+  $('#warn-box').innerHTML = s.error
+    ? `<div class="banner warn"><b>Error:</b> ${esc(s.error)}</div>` : '';
+}
+
+async function cargarInforme() {
+  try {
+    REP = await api('/api/report');
+    pintarInforme();
+  } catch (e) {
+    if (e.status === 404) pintarVacio();
+    else toast(e.message, true);
+  }
+  cargarHistorico();
+}
+
+function pintarVacio() {
+  REP = null;
+  const vacio = `<div class="empty">Todavía no hay ningún escaneo.<br>
+    Pulsa <b>Escanear</b> para tomar la primera foto de tus seguidores.</div>`;
+  ['#lista-rel','#lista-mov','#lista-sus'].forEach(s => $(s).innerHTML = vacio);
+  $('#orbit').innerHTML = '';
+  $('#orbit-leyenda').innerHTML = '<div class="d">Sin datos todavía.</div>';
+}
+
+function pintarInforme() {
+  const t = REP.totales, m = REP.metricas, mov = REP.movimientos;
+
+  $('#k-seg').textContent = t.seguidores;
+  $('#k-sig').textContent = t.siguiendo;
+  $('#k-mut').textContent = t.mutuos;
+  $('#k-uni').textContent = t.no_te_siguen;
+  $('#k-fan').textContent = t.fans;
+  $('#k-sus').textContent = t.sospechosos;
+  $('#k-rec').textContent = m.reciprocidad + '% de reciprocidad';
+  $('#k-sus-sub').textContent = REP.escaneo_profundo ? 'con datos de perfil' : 'solo señales básicas';
+
+  // Deltas respecto al escaneo anterior
+  $('#k-seg-d').innerHTML = mov.comparado_con
+    ? delta(mov.nuevos.length - mov.perdidos.length) + ' desde el anterior'
+    : `${t.verificados} verificados`;
+  $('#k-sig-d').innerHTML = mov.comparado_con
+    ? delta(mov.nuevos_seguidos.length - mov.dejaste_de_seguir.length) + ' desde el anterior'
+    : `${t.privados} privadas`;
+
+  ['mutuos','no_te_siguen','fans'].forEach(k => $('#c-'+k).textContent = REP.listas[k].length);
+  ['nuevos','perdidos','recuperados','nuevos_seguidos'].forEach(k => $('#c-'+k).textContent = mov[k].length);
+  $('#n-rel').textContent = t.seguidores;
+  $('#n-mov').textContent = mov.comparado_con ? (mov.nuevos.length + mov.perdidos.length) : '';
+  $('#n-sus').textContent = t.sospechosos || '';
+
+  $('#mov-banner').innerHTML = mov.comparado_con
+    ? `Comparando con el escaneo del <b>${esc(mov.comparado_con.replace('T',' '))}</b>.`
+    : 'Este es el primer escaneo: todavía no hay nada con lo que comparar. Vuelve a escanear dentro de unos días.';
+
+  $('#sus-hint').textContent = REP.escaneo_profundo
+    ? 'Con datos de perfil: publicaciones, biografía y ratios cuentan en la puntuación.'
+    : 'Solo con señales básicas. Lanza un escaneo profundo para mirar también publicaciones, bio y ratios.';
+
+  pintarOrbita();
+  pintarRelaciones();
+  pintarMovimientos();
+  pintarSospechosos();
+}
+
+function delta(n) {
+  if (!n) return `<span class="delta flat">±0</span>`;
+  const cls = n > 0 ? 'up' : 'down';
+  return `<span class="delta ${cls}">${n > 0 ? '+' : ''}${n}</span>`;
+}
+
+// ---------------------------------------------------------------- órbita
+// Tú en el centro; tres anillos según cuánto te corresponde cada grupo.
+// Es la vista que resume de un golpe lo que las tablas cuentan en detalle.
+function pintarOrbita() {
+  const svg = $('#orbit'), cx = 165, cy = 165;
+  const anillos = [
+    {k:'mutuos',       r: 62,  color:'var(--ok)',      etiqueta:'Mutuos',       desc:'os seguís los dos'},
+    {k:'fans',         r: 104, color:'var(--accent)',  etiqueta:'Fans',         desc:'te siguen y tú no'},
+    {k:'no_te_siguen', r: 146, color:'var(--caution)', etiqueta:'No te siguen', desc:'tú sí les sigues'},
+  ];
+  // Cuántos puntos caben en cada anillo sin pisarse: es la circunferencia la
+  // que manda, no un número fijo. Así el anillo interior (el más corto) no se
+  // convierte en una línea continua cuando tienes muchos mutuos.
+  const caben = r => Math.floor((2 * Math.PI * r) / 9);
+
+  let piezas = '';
+  anillos.forEach(a => {
+    piezas += `<circle class="guide" cx="${cx}" cy="${cy}" r="${a.r}"/>`;
+    const gente = REP.listas[a.k] || [];
+    const n = Math.min(gente.length, caben(a.r));
+    a.dibujados = n;
+    for (let i = 0; i < n; i++) {
+      // Desfase por anillo para que los puntos no queden alineados en radios.
+      const ang = (i / n) * Math.PI * 2 - Math.PI / 2 + a.r * 0.013;
+      const x = cx + Math.cos(ang) * a.r, y = cy + Math.sin(ang) * a.r;
+      const p = gente[i];
+      piezas += `<circle class="p" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4"`
+             + ` fill="${a.color}"><title>@${esc(p.username)}${p.protegido ? ' · intocable' : ''}</title></circle>`;
+    }
+  });
+  piezas += `<circle class="me" cx="${cx}" cy="${cy}" r="30"/>`;
+  piezas += `<text class="me-txt" x="${cx}" y="${cy}">tú</text>`;
+  svg.innerHTML = piezas;
+
+  $('#orbit-leyenda').innerHTML = anillos.map(a => {
+    const total = (REP.listas[a.k] || []).length;
+    const extra = total > a.dibujados
+      ? ` <span style="color:var(--txt-3)">(se dibujan ${a.dibujados})</span>` : '';
+    return `<div class="it">
+      <span class="sw" style="background:${a.color}"></span>
+      <span class="n" style="color:${a.color}">${total}</span>
+      <span class="d"><b>${a.etiqueta}</b><br>${a.desc}${extra}</span>
+    </div>`;
+  }).join('');
+
+  $('#orbit-lectura').innerHTML = lectura();
+}
+
+// Los números dichos en voz alta. Un panel que solo enseña cifras te obliga a
+// interpretarlas; este te dice lo que ve, igual que el motor de ig-unsender
+// escribe el motivo de cada decisión en vez de un código.
+function lectura() {
+  const t = REP.totales, m = REP.metricas, mov = REP.movimientos;
+  const frases = [];
+
+  if (t.siguiendo) {
+    const de10 = Math.round(m.reciprocidad / 10);
+    frases.push(`De cada 10 cuentas que sigues, <b>${de10}</b> te devuelven el seguimiento.`);
+  }
+  if (t.no_te_siguen) {
+    frases.push(`Hay <b>${t.no_te_siguen}</b> a las que sigues sin que te correspondan.`);
+  }
+  if (mov.comparado_con) {
+    const neto = mov.nuevos.length - mov.perdidos.length;
+    const verbo = neto > 0 ? 'has ganado' : neto < 0 ? 'has perdido' : 'te has quedado igual:';
+    frases.push(`Desde el escaneo anterior ${verbo} <b>${Math.abs(neto) || ''}</b> `
+      + `${Math.abs(neto) === 1 ? 'seguidor' : 'seguidores'} `
+      + `(${mov.nuevos.length} nuevos, ${mov.perdidos.length} que se fueron).`);
+    if (mov.recuperados.length) {
+      frases.push(`<b>${mov.recuperados.length}</b> de los nuevos ya te habían seguido antes: han vuelto.`);
+    }
+  } else {
+    frases.push('Este es tu primer escaneo: vuelve a escanear dentro de unos días y aquí verás qué ha cambiado.');
+  }
+  if (t.sospechosos) {
+    frases.push(`<b>${t.sospechosos}</b> de tus seguidores dan indicios de cuenta falsa.`);
+  }
+  return frases.map(f => `<p>${f}</p>`).join('');
+}
+
+// ------------------------------------------------------------- sparkline
+async function cargarHistorico() {
+  try {
+    const {serie} = await api('/api/history');
+    const box = $('#spark-box');
+    if (!serie || serie.length < 2) {
+      box.innerHTML = '<div class="empty">Hará falta más de un escaneo.</div>';
+      return;
+    }
+    const w = 520, h = 92, pad = 8;
+    const vals = serie.map(p => p.seguidores);
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const span = (max - min) || 1;
+    const px = i => pad + i * (w - pad*2) / (serie.length - 1);
+    const py = v => h - pad - ((v - min) / span) * (h - pad*2);
+    const puntos = serie.map((p,i) => `${px(i).toFixed(1)},${py(p.seguidores).toFixed(1)}`);
+    box.innerHTML = `
+      <svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img"
+           aria-label="Seguidores en los últimos ${serie.length} escaneos: de ${min} a ${max}">
+        <polygon class="area" points="${pad},${h-pad} ${puntos.join(' ')} ${px(serie.length-1)},${h-pad}"/>
+        <polyline class="line" points="${puntos.join(' ')}"/>
+        ${serie.map((p,i) => `<circle class="pt" cx="${px(i).toFixed(1)}" cy="${py(p.seguidores).toFixed(1)}" r="2.6"><title>${esc(p.ts.replace('T',' '))}: ${p.seguidores}</title></circle>`).join('')}
+      </svg>
+      <div class="row" style="justify-content:space-between;font-size:11.5px;color:var(--txt-3);margin-top:6px">
+        <span>${esc(serie[0].ts.slice(0,10))}</span>
+        <span>mín ${min} · máx ${max}</span>
+        <span>${esc(serie[serie.length-1].ts.slice(0,10))}</span>
+      </div>`;
+  } catch (e) { /* sin histórico todavía */ }
+}
+
+// ------------------------------------------------------------- personas
+function fichaPersona(r, extra = '') {
+  const mg = monograma(r);
+  const tags = [];
+  if (r.protegido) tags.push('<span class="tag prot">intocable</span>');
+  if (r.is_verified) tags.push('<span class="tag ver">verificada</span>');
+  if (r.is_private) tags.push('<span class="tag priv">privada</span>');
+  return `<div class="person">
+    <div class="mono-av" style="background:${mg.color}" aria-hidden="true">${esc(mg.iniciales)}</div>
+    <div class="who">
+      <div class="u">@${esc(r.username)}</div>
+      ${r.full_name ? `<div class="fn">${esc(r.full_name)}</div>` : ''}
+      ${r.motivos && r.motivos.length ? `<div class="motivos">${esc(r.motivos.join(' · '))}</div>` : ''}
+    </div>
+    ${extra}
+    <div class="tags">${tags.join('')}</div>
+  </div>`;
+}
+
+function filtrar(lista, q) {
+  q = (q||'').trim().toLowerCase();
+  if (!q) return lista;
+  return lista.filter(r => (r.username||'').toLowerCase().includes(q)
+                        || (r.full_name||'').toLowerCase().includes(q));
+}
+
+function pintarRelaciones() {
+  if (!REP) return;
+  const lista = filtrar(REP.listas[relKey] || [], $('#q-rel').value);
+  $('#lista-rel').innerHTML = lista.length
+    ? lista.map(r => fichaPersona(r)).join('')
+    : '<div class="empty">Nadie en esta categoría con ese filtro.</div>';
+}
+
+function pintarMovimientos() {
+  if (!REP) return;
+  const etiquetas = {nuevos:'nuevo', perdidos:'perdido', recuperados:'vuelto', nuevos_seguidos:''};
+  const lista = REP.movimientos[movKey] || [];
+  const tag = etiquetas[movKey]
+    ? `<span class="tag ${etiquetas[movKey] === 'nuevo' ? 'nuevo' : etiquetas[movKey] === 'perdido' ? 'perdido' : 'vuelto'}">${etiquetas[movKey]}</span>`
+    : '';
+  $('#lista-mov').innerHTML = lista.length
+    ? lista.map(r => fichaPersona(r, tag ? `<div class="tags">${tag}</div>` : '')).join('')
+    : `<div class="empty">Nada en esta categoría.${
+        REP.movimientos.comparado_con ? '' : '<br>Necesitas al menos dos escaneos.'}</div>`;
+}
+
+function pintarSospechosos() {
+  if (!REP) return;
+  const lista = filtrar(REP.sospechosos || [], $('#q-sus').value);
+  $('#lista-sus').innerHTML = lista.length
+    ? lista.map(r => fichaPersona(r,
+        `<div class="score ${r.banda}">${r.score}</div>
+         <div class="tags"><span class="tag ${r.banda}">${r.banda}</span></div>`)).join('')
+    : '<div class="empty">Ninguna cuenta pasa el umbral. Buena señal.</div>';
+}
+
+$('#q-rel').oninput = pintarRelaciones;
+$('#q-sus').oninput = pintarSospechosos;
+$$('#seg-rel button').forEach(b => b.onclick = () => {
+  $$('#seg-rel button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); relKey = b.dataset.k; pintarRelaciones();
+});
+$$('#seg-mov button').forEach(b => b.onclick = () => {
+  $$('#seg-mov button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); movKey = b.dataset.k; pintarMovimientos();
+});
+
+const csv = k => window.open(`/api/report.csv?lista=${k}&token=${encodeURIComponent(TOKEN)}`, '_blank');
+$('#b-csv-rel').onclick = () => csv(relKey);
+$('#b-csv-mov').onclick = () => csv(movKey === 'nuevos_seguidos' ? 'nuevos' : movKey);
+$('#b-csv-sus').onclick = () => csv('sospechosos');
+
+// ===========================================================================
+// Control del escaneo
+// ===========================================================================
+async function lanzar(deep) {
+  try {
+    await api('/api/scan', {method:'POST', body: JSON.stringify({deep})});
+    $('#log').innerHTML = '';
+    toast(deep ? 'Escaneo profundo en marcha. Va despacio a propósito.' : 'Escaneando…');
+  } catch (e) { toast(e.message, true); }
+}
+$('#b-scan').onclick = () => lanzar(false);
+$('#b-scan-deep').onclick = () => lanzar(true);
+$('#b-stop').onclick = async () => {
+  try { await api('/api/stop', {method:'POST'}); } catch (e) { toast(e.message, true); }
+};
+
+// ===========================================================================
+// Ajustes
+// ===========================================================================
+let wl = [];
+
+async function cargarConfig() {
+  CFG = await api('/api/config');
+  const a = CFG.account||{}, s = CFG.scan||{}, su = CFG.suspects||{};
+  $('#ac-user').value = a.username||''; $('#ac-pass').value = a.password||'';
+  $('#ac-totp').value = a.totp_seed||'';
+  $('#sc-target').value = s.target||'';
+  $('#sc-deep').checked = !!s.deep_scan;
+  $('#sc-deep-limit').value = s.deep_scan_limit ?? 60;
+  $('#sc-dmin').value = s.deep_min_delay ?? 2;
+  $('#sc-dmax').value = s.deep_max_delay ?? 5;
+  $('#su-on').checked = su.enabled !== false;
+  $('#su-medio').value = su.umbral_medio ?? 35;
+  $('#su-alto').value = su.umbral_alto ?? 60;
+  wl = (CFG.whitelist||{}).usernames || [];
+  pintarWl();
+}
+
+function pintarWl() {
+  $('#wl-chips').innerHTML = wl.length
+    ? wl.map((u,i) => `<span class="chip">@${esc(u)}<button type="button" data-i="${i}" aria-label="Quitar a ${esc(u)} de intocables">✕</button></span>`).join('')
+    : '<span style="font-size:12px;color:var(--txt-3)">Nadie todavía.</span>';
+  $$('#wl-chips button').forEach(b => b.onclick = () => { wl.splice(+b.dataset.i,1); pintarWl(); });
+}
+
+$('#wl-in').onkeydown = e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const v = e.target.value.trim().replace(/^@/,'').toLowerCase();
+  if (v && !wl.includes(v)) { wl.push(v); pintarWl(); }
+  e.target.value = '';
+};
+
+$('#b-save').onclick = async () => {
+  const payload = {
+    account: {username:$('#ac-user').value.trim(), password:$('#ac-pass').value, totp_seed:$('#ac-totp').value},
+    scan: {
+      target: $('#sc-target').value.trim().replace(/^@/,''),
+      deep_scan: $('#sc-deep').checked,
+      deep_scan_limit: +$('#sc-deep-limit').value || 0,
+      deep_min_delay: +$('#sc-dmin').value || 0,
+      deep_max_delay: +$('#sc-dmax').value || 0,
+    },
+    suspects: {
+      enabled: $('#su-on').checked,
+      umbral_medio: +$('#su-medio').value || 0,
+      umbral_alto: +$('#su-alto').value || 0,
+    },
+    whitelist: {usernames: wl},
+  };
+  try {
+    await api('/api/config', {method:'POST', body: JSON.stringify(payload)});
+    toast('Ajustes guardados.');
+    refreshStatus(); cargarInforme();
+  } catch (e) { toast(e.message, true); }
+};
+
+// ===========================================================================
+// SSE
+// ===========================================================================
+function pushLog(e) {
+  const box = $('#log');
+  const abajo = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  const div = document.createElement('div');
+  div.className = 'ln';
+  div.innerHTML = `<span class="t">${hhmm(e.ts)}</span><span class="m ${esc(e.level)}">${esc(e.message)}</span>`;
+  box.appendChild(div);
+  while (box.children.length > 400) box.removeChild(box.firstChild);
+  if (abajo) box.scrollTop = box.scrollHeight;
+}
+
+let es = null;
+function connect() {
+  es = new EventSource('/api/events?token=' + encodeURIComponent(TOKEN));
+  es.onopen = () => { $('#conn-dot').className = 'dot live'; $('#conn-txt').textContent = 'en vivo'; };
+  es.onerror = () => {
+    $('#conn-dot').className = 'dot'; $('#conn-txt').textContent = 'reconectando…';
+    es.close(); setTimeout(connect, 3000);
+  };
+  es.onmessage = ev => {
+    let e; try { e = JSON.parse(ev.data); } catch (x) { return; }
+    if (e.kind === 'log') pushLog(e);
+    else if (e.kind === 'status') refreshStatus();
+    else if (e.kind === 'report') { REP = e; pintarInforme(); cargarHistorico(); }
+  };
+}
+
+// ===========================================================================
+// Arranque
+// ===========================================================================
+(async function init() {
+  try {
+    await cargarConfig();
+    await refreshStatus();
+    await cargarInforme();
+    connect();
+    setInterval(refreshStatus, 5000);
+  } catch (e) {
+    document.body.innerHTML = `<div style="margin:auto;text-align:center;padding:40px">
+      <h2 style="margin-bottom:10px">No se pudo conectar</h2>
+      <p style="color:var(--txt-2)">${esc(e.message)}</p>
+      <p style="color:var(--txt-3);margin-top:12px;font-size:12px">
+        Abre el panel con la URL que imprime la consola, incluyendo el <code>?token=…</code>.</p></div>`;
+  }
+})();
+</script>
+</body>
+</html>

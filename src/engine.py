@@ -17,11 +17,25 @@ from .audit import AuditLog
 from .client import build_client
 from .config import Config
 from .events import EventBus
-from .filters import DELETE, PROTECTED, Decision, FilterEngine, MessageCtx
+from .filters import DELETE, PROTECTED, Decision, FilterEngine, MessageCtx, _thread_title
 from .state import State
 from .stats import Stats
 
 log = logging.getLogger("ig-unsender.engine")
+
+
+def _lazy_import_pagination():
+    """Importa iter_with_fallback bajo demanda, no al cargar el módulo.
+
+    pagination.py ya no exige instagrapi instalado (tiene su propio
+    extractor de respaldo), pero seguimos el mismo patrón perezoso que el
+    resto del proyecto por si el módulo falta o cambia en el futuro.
+    """
+    try:
+        from .pagination import iter_with_fallback
+        return iter_with_fallback
+    except ImportError:
+        return None
 
 # Excepciones de instagrapi que significan "vas muy rápido, frena".
 RATE_LIMIT_HINTS = ("please wait", "ratelimit", "rate limit", "429", "throttle", "spam")
@@ -179,9 +193,57 @@ class Engine:
             threads = [t for t in threads if str(t.id) not in skip]
         return threads
 
-    def _fetch_messages(self, thread_id: str) -> List[Any]:
-        amount = self.cfg.scope.messages_per_thread or 0
-        return list(self.cl.direct_messages(thread_id, amount=amount) or [])
+    def _iter_pages(self, thread_id: str) -> Any:
+        """Generador que consume páginas del hilo, de forma incremental.
+
+        Yields:
+            Tuplas (mensajes_página, cursor_siguiente, hay_más, paginando).
+            `paginando` es True solo cuando se usó paginación de verdad
+            (no cuando cayó al fallback direct_messages()), para que
+            _process() sepa si tiene sentido marcar el hilo como completo.
+
+        Si use_pagination está desactivado o falla, cae a direct_messages().
+        """
+        scope = self.cfg.scope
+
+        # Si paginación está desactivada, usa el método antiguo.
+        if not scope.use_pagination:
+            amount = scope.messages_per_thread or 0
+            messages = list(self.cl.direct_messages(thread_id, amount=amount) or [])
+            yield messages, "", False, False
+            return
+
+        # Intentar paginación. Si no está disponible, cae a directo.
+        iter_with_fallback = _lazy_import_pagination()
+        if iter_with_fallback is None:
+            amount = scope.messages_per_thread or 0
+            messages = list(self.cl.direct_messages(thread_id, amount=amount) or [])
+            yield messages, "", False, False
+            return
+
+        # Paginación explícita con cursor.
+        start_cursor = ""
+        if scope.resume_cursors:
+            # Si ya habíamos empezado este hilo, reanudar desde donde nos quedamos.
+            start_cursor = self.state.get_cursor(thread_id)
+            if self.state.is_thread_complete(thread_id):
+                # Ya completamos este hilo en una ejecución anterior.
+                log.debug(f"Hilo {thread_id} ya completado en ejecución previa. Saltando.")
+                return
+
+        # Sin try/except aquí a propósito: si algo falla, la excepción se
+        # propaga tal cual hasta el `except` de _process(), que ya la
+        # registra y cuenta como error. Capturarla aquí también duplicaría
+        # el conteo y el mensaje de log.
+        for messages, next_cursor, hay_mas, es_real in iter_with_fallback(
+            self.cl,
+            thread_id,
+            page_size=scope.page_size,
+            max_pages=scope.max_pages_per_thread,
+            start_cursor=start_cursor,
+            should_continue=lambda: not self.ctl.stopping,
+        ):
+            yield messages, next_cursor, hay_mas, es_real
 
     # ------------------------------------------------------------- borrado
     def _delete_with_retry(self, ctx: MessageCtx) -> bool:
@@ -296,78 +358,115 @@ class Engine:
                 return
 
             tid = str(thread.id)
+            title = _thread_title(thread)
+            page_num = 0
+
+            self.stats.set_current_thread(title or tid)
+            self.bus.publish("thread", thread_id=tid, title=title or tid)
+
             try:
-                messages = self._fetch_messages(tid)
+                # Consumir páginas del hilo, una a una.
+                for page_messages, next_cursor, hay_mas, es_real in self._iter_pages(tid):
+                    if not self.ctl.checkpoint():
+                        return
+
+                    page_num += 1
+
+                    # Procesar cada página.
+                    candidates: List[MessageCtx] = []
+                    for msg in page_messages:
+                        if str(getattr(msg, "user_id", "")) != self.me_id:
+                            continue  # solo mis mensajes; los ajenos ni se tocan
+                        ctx = MessageCtx.build(msg, thread)
+                        title = ctx.thread_title
+                        candidates.append(ctx)
+
+                    # Publicar evento de progreso dentro del hilo.
+                    if hay_mas or page_num > 1:
+                        self.bus.publish(
+                            "page",
+                            thread_id=tid,
+                            page_num=page_num,
+                            fetched=len(candidates),
+                            has_more=hay_mas,
+                        )
+
+                    self.stats.set_current_thread(title or tid)
+
+                    # Procesar los mensajes de esta página.
+                    for ctx in candidates:
+                        if not self.ctl.checkpoint():
+                            return
+
+                        self.stats.bump("scanned")
+
+                        if self.state.is_done(ctx.thread_id, ctx.message_id):
+                            self.stats.bump("already_done")
+                            continue
+
+                        decision = self.filters.decide(ctx)
+
+                        if decision.action == PROTECTED:
+                            self.stats.bump("protected")
+                            self._decision_event(ctx, "protected", decision)
+                            self._audit("protected", ctx, decision)
+                            continue
+
+                        if decision.action != DELETE:
+                            self.stats.bump("kept")
+                            self._decision_event(ctx, "kept", decision)
+                            self._audit("kept", ctx, decision)
+                            continue
+
+                        # --- a partir de aquí, el mensaje está marcado para anular ---
+                        self.stats.record_target(ctx.msg_type, ctx.thread_title)
+
+                        if b.dry_run:
+                            self.stats.bump("would_delete")
+                            self.stats.set_last_action(f"[SIM] {ctx.preview}")
+                            self._decision_event(ctx, "would_delete", decision)
+                            self._audit("would_delete", ctx, decision)
+                            continue
+
+                        if self.state.remaining_today(b.daily_limit) <= 0:
+                            self._emit(
+                                "WARNING",
+                                f"Cupo diario agotado ({b.daily_limit}). "
+                                "Se reanudará mañana desde este punto.",
+                            )
+                            # Guardar el cursor donde nos quedamos (solo si es paginación real).
+                            if es_real and next_cursor:
+                                self.state.set_cursor(tid, next_cursor)
+                            self.state.save(force=True)
+                            return
+
+                        if self._delete_with_retry(ctx):
+                            self.state.mark_done(ctx.thread_id, ctx.message_id)
+                            self.state.save()
+                            self.stats.bump("deleted")
+                            self.stats.set_last_action(ctx.preview)
+                            self._decision_event(ctx, "deleted", decision)
+                            self._audit("deleted", ctx, decision)
+                            self.bus.publish("stats", **self.stats.snapshot())
+                            if not self._cooldown():
+                                return
+
+                    # Guardar el cursor después de procesar la página completa.
+                    # Solo confiamos en "fin de hilo" cuando fue paginación real:
+                    # el fallback direct_messages() no garantiza haber llegado
+                    # al fondo (es justo el problema que la Mejora 1 resuelve).
+                    if es_real:
+                        if next_cursor:
+                            self.state.set_cursor(tid, next_cursor)
+                        else:
+                            # No hay más cursor: hemos llegado al fondo.
+                            self.state.mark_thread_complete(tid)
+                        self.state.save()
+
             except Exception as exc:  # noqa: BLE001
                 self._emit("ERROR", f"No se pudieron leer los mensajes del hilo {tid}: {exc}")
                 self.stats.bump("errors")
                 continue
-
-            title = ""
-            candidates: List[MessageCtx] = []
-            for msg in messages:
-                if str(getattr(msg, "user_id", "")) != self.me_id:
-                    continue  # solo mis mensajes; los ajenos ni se tocan
-                ctx = MessageCtx.build(msg, thread)
-                title = ctx.thread_title
-                candidates.append(ctx)
-
-            self.stats.set_current_thread(title or tid)
-            self.bus.publish("thread", thread_id=tid, title=title or tid,
-                             candidates=len(candidates))
-
-            for ctx in candidates:
-                if not self.ctl.checkpoint():
-                    return
-
-                self.stats.bump("scanned")
-
-                if self.state.is_done(ctx.thread_id, ctx.message_id):
-                    self.stats.bump("already_done")
-                    continue
-
-                decision = self.filters.decide(ctx)
-
-                if decision.action == PROTECTED:
-                    self.stats.bump("protected")
-                    self._decision_event(ctx, "protected", decision)
-                    self._audit("protected", ctx, decision)
-                    continue
-
-                if decision.action != DELETE:
-                    self.stats.bump("kept")
-                    self._decision_event(ctx, "kept", decision)
-                    self._audit("kept", ctx, decision)
-                    continue
-
-                # --- a partir de aquí, el mensaje está marcado para anular ---
-                self.stats.record_target(ctx.msg_type, ctx.thread_title)
-
-                if b.dry_run:
-                    self.stats.bump("would_delete")
-                    self.stats.set_last_action(f"[SIM] {ctx.preview}")
-                    self._decision_event(ctx, "would_delete", decision)
-                    self._audit("would_delete", ctx, decision)
-                    continue
-
-                if self.state.remaining_today(b.daily_limit) <= 0:
-                    self._emit(
-                        "WARNING",
-                        f"Cupo diario agotado ({b.daily_limit}). "
-                        "Se reanudará mañana desde este punto.",
-                    )
-                    return
-
-                if self._delete_with_retry(ctx):
-                    self.state.mark_done(ctx.thread_id, ctx.message_id)
-                    self.state.save()
-                    self.stats.bump("deleted")
-                    self.stats.set_last_action(ctx.preview)
-                    self._decision_event(ctx, "deleted", decision)
-                    self._audit("deleted", ctx, decision)
-                    self.bus.publish("stats", **self.stats.snapshot())
-                    if not self._cooldown():
-                        return
 
             self.stats.bump("threads_done")
             self.bus.publish("stats", **self.stats.snapshot())
