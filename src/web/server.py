@@ -135,6 +135,23 @@ def create_app(runner: EngineRunner, token: str) -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    # ---------------------------------------------------------- paginación
+    @app.post("/api/scope/reset-cursors", dependencies=auth)
+    async def reset_cursors():
+        """Olvida los cursores guardados: la próxima ejecución repasa cada
+        hilo largo desde el principio en vez de reanudar donde se quedó."""
+        from ..state import State
+
+        if runner.busy:
+            raise HTTPException(
+                status_code=409,
+                detail="Hay una ejecución en marcha. Párala antes de reiniciar cursores.",
+            )
+        state = State(runner.cfg.path(runner.cfg.state.file))
+        state.reset_cursors()
+        state.save(force=True)
+        return {"ok": True}
+
     # ------------------------------------------------------------ auditoría
     @app.get("/api/audit", dependencies=auth)
     async def audit(

@@ -1,0 +1,14 @@
+# Credenciales y estado generado — nunca se commitean (ver CLAUDE.md § 9)
+config.yaml
+config.yaml.bak
+session.json
+state.json
+audit.jsonl
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/

@@ -39,9 +39,10 @@ ME = "42"
 class FakeClient:
     """Imita la superficie de instagrapi que usa el motor."""
 
-    def __init__(self):
+    def __init__(self, enable_pagination=False, include_long_thread=False):
         self.user_id = ME
         self.deleted = []
+        self.enable_pagination = enable_pagination
         self._threads = [
             self._thread("t1", "Amigo", ["colega"], [
                 ("m1", "text", "hola qué tal", ME),
@@ -57,6 +58,12 @@ class FakeClient:
                 ("m7", "text", "buenos días", ME),
             ], is_group=True),
         ]
+        if include_long_thread:
+            # Hilo largo con ~55 mensajes para probar paginación con page_size=20.
+            self._threads.append(self._thread("t4", "Hilo largo", ["alice"], [
+                (f"long_{i:03d}", "text", f"mensaje {i}", ME)
+                for i in range(55)
+            ]))
 
     @staticmethod
     def _thread(tid, title, users, msgs, is_group=False):
@@ -78,6 +85,70 @@ class FakeClient:
                 return t.messages
         return []
 
+    def private_request(self, path: str, params=None):
+        """Simula la API privada direct_v2/threads/{thread_id}/ con paginación."""
+        if not path.startswith("direct_v2/threads/"):
+            raise ValueError(f"Endpoint no soportado: {path}")
+
+        thread_id = path.split("/")[2]
+        params = params or {}
+
+        # Buscar el hilo.
+        messages = []
+        for t in self._threads:
+            if str(t.id) == thread_id:
+                messages = t.messages
+                break
+
+        if not messages:
+            return {"thread": {"items": [], "oldest_cursor": "", "has_older": False}}
+
+        # Simular paginación: partir en páginas de `limit` elementos.
+        limit = int(params.get("limit", 20))
+        cursor = params.get("cursor", "")
+
+        # El cursor es "<start_idx>:<end_idx>" (formato simulado).
+        if cursor:
+            try:
+                start_idx = int(cursor.split(":")[0])
+            except (ValueError, IndexError):
+                start_idx = 0
+        else:
+            start_idx = 0
+
+        end_idx = min(start_idx + limit, len(messages))
+        page_items = messages[start_idx:end_idx]
+
+        # Calcular el cursor siguiente.
+        if end_idx < len(messages):
+            next_cursor = f"{end_idx}:{end_idx + limit}"
+            has_older = True
+        else:
+            next_cursor = ""
+            has_older = False
+
+        # Convertir a formato API crudo (simplificado).
+        items = [
+            {
+                "id": m.id,
+                "item_type": m.item_type,
+                "text": m.text,
+                "user_id": m.user_id,
+                "timestamp": m.timestamp.isoformat() if m.timestamp else "",
+                "media": m.media,
+                "link": m.link,
+            }
+            for m in page_items
+        ]
+
+        return {
+            "thread": {
+                "items": items,
+                "oldest_cursor": next_cursor,
+                "has_older": has_older,
+            }
+        }
+
     def direct_message_delete(self, thread_id, message_id):
         self.deleted.append((thread_id, message_id))
         return True
@@ -91,7 +162,8 @@ behavior:
   max_delay: 0
   pause_every: 0
   daily_limit: 100
-scope: {}
+scope:
+  use_pagination: false  # deshabilitado por defecto en tests (instagrapi no disponible)
 whitelist:
   protect_groups: true
   match:
@@ -109,14 +181,14 @@ rules:
 """
 
 
-def build(tmp: Path, overrides: str = ""):
+def build(tmp: Path, overrides: str = "", include_long_thread: bool = False):
     path = tmp / "config.yaml"
     path.write_text(CONFIG + overrides, encoding="utf-8")
     cfg = load_config(str(path))
     bus, stats = EventBus(), Stats()
     ctl = Controller(bus)
     ctl.reset()
-    client = FakeClient()
+    client = FakeClient(include_long_thread=include_long_thread)
     return cfg, bus, stats, ctl, client, Engine(cfg, bus, stats, ctl, client=client)
 
 
@@ -196,6 +268,125 @@ def main() -> int:
     engine4.run()
     check("para sin borrar nada",      len(client4.deleted), 0)
     check("estado = stopped",          ctl4.state.value, "stopped")
+
+    # ---------------------------------------------------------- PAGINACIÓN
+    # Nota: iter_thread_messages() no exige instagrapi instalado (usa un
+    # extractor de respaldo si la librería no está disponible), así que
+    # estos tests corren igual que el resto: sin red ni credenciales.
+    print("\n\033[1mPAGINACIÓN POR CURSOR (fallback desactivado)\033[0m")
+    shutil.rmtree(tmp); tmp = Path(tempfile.mkdtemp())
+    cfg5, bus5, stats5, ctl5, client5, engine5 = build(tmp, "\n", include_long_thread=True)
+    cfg5.scope.use_pagination = False
+    cfg5.behavior.dry_run = True
+    engine5.run()
+    snap5 = stats5.snapshot()
+
+    check("sin paginación: escanea todos de una vez",
+          snap5["scanned"], 6 + 55)  # 6 de los primeros 3 hilos + 55 del hilo largo
+    # Sin paginación real, los hilos no se marcan como completos.
+    check("sin paginación: hilos sin marca de completo",
+          engine5.state.is_thread_complete("t4"), False)
+
+    # ------------------------------------------------ PAGINACIÓN REAL (3 páginas)
+    print("\n\033[1mPAGINACIÓN REAL POR CURSOR (55 mensajes, page_size=20)\033[0m")
+    shutil.rmtree(tmp); tmp = Path(tempfile.mkdtemp())
+    cfg6, bus6, stats6, ctl6, client6, engine6 = build(tmp, "\n", include_long_thread=True)
+    cfg6.scope.use_pagination = True
+    cfg6.scope.page_size = 20
+    cfg6.scope.max_pages_per_thread = 0  # sin límite: hasta el fondo
+    cfg6.behavior.dry_run = True
+    engine6.run()
+    snap6 = stats6.snapshot()
+
+    page_events = bus6.history(kinds=["page"], limit=99)
+    t4_pages = [e for e in page_events if e["thread_id"] == "t4"]
+
+    check("paginación real: recorre las 3 páginas del hilo largo",
+          len(t4_pages), 3)
+    check("paginación real: escanea todos los mensajes (6 + 55)",
+          snap6["scanned"], 6 + 55)
+    check("paginación real: marca el hilo largo como completo",
+          engine6.state.is_thread_complete("t4"), True)
+    check("paginación real: limpia el cursor tras completar",
+          engine6.state.get_cursor("t4"), "")
+    check("paginación real: última página no indica 'hay más'",
+          t4_pages[-1]["has_more"], False)
+
+    # -------------------------------------------------- PAGINACIÓN CON LÍMITE
+    print("\n\033[1mPAGINACIÓN CON max_pages_per_thread\033[0m")
+    shutil.rmtree(tmp); tmp = Path(tempfile.mkdtemp())
+    cfg7, bus7, stats7, ctl7, client7, engine7 = build(tmp, "\n", include_long_thread=True)
+    cfg7.scope.use_pagination = True
+    cfg7.scope.page_size = 20
+    cfg7.scope.max_pages_per_thread = 2  # solo 2 de las 3 páginas
+    cfg7.behavior.dry_run = True
+    engine7.run()
+    snap7 = stats7.snapshot()
+
+    check("límite de páginas: corta antes de agotar el hilo",
+          snap7["scanned"], 6 + 40)  # 2 páginas de 20 = 40 del hilo largo
+    check("límite de páginas: NO marca el hilo como completo",
+          engine7.state.is_thread_complete("t4"), False)
+    check("límite de páginas: guarda el cursor para poder reanudar",
+          bool(engine7.state.get_cursor("t4")), True)
+
+    # ------------------------------------------------- REANUDACIÓN DESDE CURSOR
+    print("\n\033[1mREANUDACIÓN DESDE EL CURSOR GUARDADO\033[0m")
+    # Mismo directorio de estado (state.json ya tiene el cursor de arriba).
+    cfg8, bus8, stats8, ctl8, client8, engine8 = build(tmp, "\n", include_long_thread=True)
+    cfg8.scope.use_pagination = True
+    cfg8.scope.page_size = 20
+    cfg8.scope.max_pages_per_thread = 0  # ahora sin límite: que llegue al fondo
+    cfg8.behavior.dry_run = True
+    engine8.run()
+    snap8 = stats8.snapshot()
+
+    check("reanudación: no repite los mensajes de las páginas ya vistas",
+          snap8["scanned"], 15)  # solo la 3ª página del hilo largo (55-40=15)
+    check("reanudación: termina de completar el hilo largo",
+          engine8.state.is_thread_complete("t4"), True)
+
+    # ------------------------------------------------------- PARADA A MITAD
+    # Interrumpimos justo al empezar la 2ª página del hilo largo: la 1ª ya
+    # completó su ciclo (mensajes procesados + cursor guardado) antes de que
+    # el evento de la 2ª dispare la parada. El cursor guardado debe ser
+    # exactamente el de "tras la página 1", ni más ni menos — así la
+    # siguiente ejecución retoma ahí sin perder ni repetir nada.
+    print("\n\033[1mPARADA A MITAD DE PAGINACIÓN\033[0m")
+    shutil.rmtree(tmp); tmp = Path(tempfile.mkdtemp())
+    cfg9, bus9, stats9, ctl9, client9, engine9 = build(tmp, "\n", include_long_thread=True)
+    cfg9.scope.use_pagination = True
+    cfg9.scope.page_size = 20
+    cfg9.behavior.dry_run = True
+
+    original_publish = bus9.publish
+    def _stop_at_second_long_page(kind, **payload):
+        event = original_publish(kind, **payload)
+        if kind == "page" and payload.get("thread_id") == "t4" and payload.get("page_num") == 2:
+            ctl9.stop()
+        return event
+    bus9.publish = _stop_at_second_long_page
+
+    engine9.run()
+
+    check("parada a mitad: guarda el cursor de la página ya completada",
+          bool(engine9.state.get_cursor("t4")), True)
+    check("parada a mitad: NO marca el hilo como completo (aún quedaba trabajo)",
+          engine9.state.is_thread_complete("t4"), False)
+    check("parada a mitad: no procesó nada de la página interrumpida",
+          engine9.state.get_cursor("t4"), "20:40")
+    check("parada a mitad: ejecución marcada como detenida",
+          ctl9.state.value, "stopped")
+
+    # ------------------------------------------------------- RESET DE CURSORES
+    print("\n\033[1mRESET DE CURSORES\033[0m")
+    check("reset: antes - hilo largo completo (de la reanudación)",
+          engine8.state.is_thread_complete("t4"), True)
+    engine8.state.reset_cursors()
+    check("reset: después - hilo largo ya no está completo",
+          engine8.state.is_thread_complete("t4"), False)
+    check("reset: todos los cursores quedan limpios",
+          bool(engine8.state.thread_cursors), False)
 
     shutil.rmtree(tmp, ignore_errors=True)
 

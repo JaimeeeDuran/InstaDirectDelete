@@ -218,7 +218,10 @@
         <button class="btn" id="b-pause" disabled>⏸ Pausar</button>
         <button class="btn" id="b-resume" disabled style="display:none">▶ Reanudar</button>
         <button class="btn ghost" id="b-stop" disabled>⏹ Parar</button>
-        <span style="margin-left:auto;color:var(--txt-3);font-size:12px" id="current-thread"></span>
+        <span style="margin-left:auto;color:var(--txt-3);font-size:12px;text-align:right">
+          <span id="current-thread"></span><br>
+          <span id="page-progress" style="font-size:11px"></span>
+        </span>
       </div>
     </div>
 
@@ -330,9 +333,25 @@
       <h3>Volumen</h3>
       <div class="cols">
         <label class="f"><span>Chats a procesar <small>(0 = todos)</small></span><input type="number" id="sc-threads" min="0"></label>
-        <label class="f"><span>Mensajes por chat <small>(0 = todos)</small></span><input type="number" id="sc-msgs" min="0"></label>
+        <label class="f"><span>Mensajes por chat <small>(0 = todos, solo sin paginación)</small></span><input type="number" id="sc-msgs" min="0"></label>
       </div>
       <label class="switch"><input type="checkbox" id="sc-requests"><span>Incluir la bandeja de solicitudes</span></label>
+    </div>
+
+    <div class="card">
+      <h3>Paginación en hilos largos</h3>
+      <p class="hint">En hilos con años de conversación, la descarga de una sola vez no siempre llega
+        al fondo. La paginación por cursor sí, y permite reanudar exactamente donde se quedó.</p>
+      <label class="switch"><input type="checkbox" id="sc-pagination"><span>Usar paginación por cursor (recomendado)</span></label>
+      <div class="cols">
+        <label class="f"><span>Mensajes por página</span><input type="number" id="sc-page-size" min="1"></label>
+        <label class="f"><span>Tope de páginas por hilo <small>(0 = hasta el fondo)</small></span><input type="number" id="sc-max-pages" min="0"></label>
+      </div>
+      <label class="switch"><input type="checkbox" id="sc-resume-cursors"><span>Reanudar desde el cursor guardado</span></label>
+      <div class="row" style="margin-top:10px">
+        <button class="btn sm ghost" id="b-reset-cursors">↺ Reiniciar cursores</button>
+        <span style="font-size:12px;color:var(--txt-3)">Fuerza un repaso completo de todos los hilos en la próxima ejecución.</span>
+      </div>
     </div>
 
     <div class="card">
@@ -774,6 +793,10 @@ function renderScope() {
   $('#sc-threads').value = s.threads_amount ?? 0;
   $('#sc-msgs').value = s.messages_per_thread ?? 0;
   $('#sc-requests').checked = !!s.include_requests;
+  $('#sc-pagination').checked = s.use_pagination !== false;
+  $('#sc-page-size').value = s.page_size ?? 20;
+  $('#sc-max-pages').value = s.max_pages_per_thread ?? 0;
+  $('#sc-resume-cursors').checked = s.resume_cursors !== false;
   $('#sc-only').value = (s.only_thread_ids||[]).join('\n');
   $('#sc-skip').value = (s.skip_thread_ids||[]).join('\n');
 }
@@ -811,12 +834,25 @@ $('#b-save-scope').onclick = async () => {
     threads_amount: +$('#sc-threads').value || 0,
     messages_per_thread: +$('#sc-msgs').value || 0,
     include_requests: $('#sc-requests').checked,
+    use_pagination: $('#sc-pagination').checked,
+    page_size: +$('#sc-page-size').value || 20,
+    max_pages_per_thread: +$('#sc-max-pages').value || 0,
+    resume_cursors: $('#sc-resume-cursors').checked,
     only_thread_ids: lines($('#sc-only').value),
     skip_thread_ids: lines($('#sc-skip').value),
   };
   try {
     await api('/api/config', {method:'POST', body: JSON.stringify({scope})});
     CFG.scope = scope; toast('Alcance guardado.');
+  } catch (e) { toast(e.message, true); }
+};
+
+$('#b-reset-cursors').onclick = async () => {
+  if (!confirm('Esto olvida por dónde ibas en cada hilo largo y hará que la próxima ejecución los repase desde el principio. ¿Seguir?')) return;
+  try {
+    await api('/api/scope/reset-cursors', {method:'POST'});
+    toast('Cursores reiniciados. La próxima ejecución repasa todos los hilos desde el principio.');
+    refreshStatus();
   } catch (e) { toast(e.message, true); }
 };
 
@@ -941,7 +977,10 @@ function connect() {
     else if (e.kind === 'decision') { pushFeed(e); }
     else if (e.kind === 'stats') applyStats(e);
     else if (e.kind === 'status') { refreshStatus(); }
-    else if (e.kind === 'thread') $('#current-thread').textContent = '◈ ' + e.title;
+    else if (e.kind === 'thread') { $('#current-thread').textContent = '◈ ' + e.title; $('#page-progress').textContent = ''; }
+    else if (e.kind === 'page') {
+      $('#page-progress').textContent = `página ${e.page_num} · ${e.fetched} mensajes` + (e.has_more ? ' · quedan más…' : ' · fin del hilo');
+    }
   };
 }
 
