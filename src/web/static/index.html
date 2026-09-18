@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ig-unsender · Panel de control</title>
+<style>
+  :root{
+    --bg:#0d1117; --bg-2:#161b22; --bg-3:#1c2333; --line:#2a3242;
+    --txt:#e6edf3; --txt-2:#8b949e; --txt-3:#6e7681;
+    --accent:#4c8dff; --ok:#3fb950; --warn:#d29922; --err:#f85149;
+    --prot:#a371f7; --radius:10px;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--txt);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;min-height:100vh;
+  }
+  button,input,select,textarea{font:inherit;color:inherit}
+
+  /* ---------- sidebar ---------- */
+  aside{
+    width:220px;flex-shrink:0;background:var(--bg-2);
+    border-right:1px solid var(--line);display:flex;flex-direction:column;
+    position:sticky;top:0;height:100vh;
+  }
+  .brand{padding:18px 20px;border-bottom:1px solid var(--line)}
+  .brand h1{font-size:15px;font-weight:650;letter-spacing:-.2px}
+  .brand small{color:var(--txt-3);font-size:11px;font-family:var(--mono)}
+  nav{padding:10px;flex:1}
+  nav button{
+    display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;
+    background:none;border:0;border-radius:8px;color:var(--txt-2);
+    cursor:pointer;text-align:left;font-size:13.5px;margin-bottom:2px;
+  }
+  nav button:hover{background:var(--bg-3);color:var(--txt)}
+  nav button.on{background:var(--accent);color:#fff;font-weight:550}
+  nav .ico{width:16px;text-align:center;opacity:.9}
+  .side-foot{padding:14px 16px;border-top:1px solid var(--line);font-size:11px;color:var(--txt-3)}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--err);margin-right:6px}
+  .dot.live{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+
+  /* ---------- layout ---------- */
+  main{flex:1;min-width:0;display:flex;flex-direction:column}
+  header{
+    display:flex;align-items:center;gap:14px;padding:14px 26px;
+    border-bottom:1px solid var(--line);background:var(--bg-2);
+    position:sticky;top:0;z-index:20;flex-wrap:wrap;
+  }
+  header h2{font-size:16px;font-weight:600;margin-right:auto}
+  .pill{
+    display:inline-flex;align-items:center;gap:7px;padding:5px 12px;
+    border-radius:999px;font-size:12px;font-weight:600;
+    background:var(--bg-3);border:1px solid var(--line);
+  }
+  .pill .led{width:7px;height:7px;border-radius:50%;background:var(--txt-3)}
+  .pill.running{border-color:var(--ok);color:var(--ok)} .pill.running .led{background:var(--ok);animation:blink 1.2s infinite}
+  .pill.paused{border-color:var(--warn);color:var(--warn)} .pill.paused .led{background:var(--warn)}
+  .pill.error{border-color:var(--err);color:var(--err)} .pill.error .led{background:var(--err)}
+  .pill.finished{border-color:var(--accent);color:var(--accent)} .pill.finished .led{background:var(--accent)}
+  @keyframes blink{50%{opacity:.35}}
+  .mode{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px}
+  .mode.sim{background:rgba(76,141,255,.15);color:var(--accent);border:1px solid rgba(76,141,255,.35)}
+  .mode.real{background:rgba(248,81,73,.15);color:var(--err);border:1px solid rgba(248,81,73,.4)}
+  section.page{padding:24px 26px;display:none;flex:1;overflow:auto}
+  section.page.on{display:block}
+
+  /* ---------- componentes ---------- */
+  .card{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:18px}
+  .card h3{font-size:13px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .card .hint{font-size:12px;color:var(--txt-3);margin-bottom:14px;line-height:1.5}
+  .grid{display:grid;gap:12px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(135px,1fr))}
+  .kpi{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+  .kpi .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--txt-3);margin-bottom:6px}
+  .kpi .val{font-size:26px;font-weight:650;font-family:var(--mono);letter-spacing:-1px}
+  .kpi.del .val{color:var(--err)} .kpi.prot .val{color:var(--prot)}
+  .kpi.keep .val{color:var(--txt-2)} .kpi.err .val{color:var(--warn)}
+  .kpi .sub{font-size:11px;color:var(--txt-3);margin-top:3px}
+
+  .btn{
+    padding:8px 15px;border-radius:7px;border:1px solid var(--line);
+    background:var(--bg-3);cursor:pointer;font-size:13px;font-weight:550;
+    transition:.12s;display:inline-flex;align-items:center;gap:7px;
+  }
+  .btn:hover:not(:disabled){border-color:var(--accent);transform:translateY(-1px)}
+  .btn:disabled{opacity:.38;cursor:not-allowed}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.danger{background:rgba(248,81,73,.14);border-color:rgba(248,81,73,.45);color:var(--err)}
+  .btn.danger:hover:not(:disabled){background:var(--err);color:#fff}
+  .btn.ghost{background:none}
+  .btn.sm{padding:5px 11px;font-size:12px}
+  .row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+
+  label.f{display:block;margin-bottom:12px}
+  label.f > span{display:block;font-size:12px;color:var(--txt-2);margin-bottom:5px;font-weight:500}
+  label.f small{color:var(--txt-3);font-weight:400}
+  input[type=text],input[type=number],input[type=password],select,textarea{
+    width:100%;padding:8px 11px;background:var(--bg);border:1px solid var(--line);
+    border-radius:7px;font-size:13px;outline:none;
+  }
+  input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+  textarea{font-family:var(--mono);font-size:12px;resize:vertical;min-height:62px;line-height:1.6}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:0 16px}
+  .switch{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;padding:7px 0}
+  .switch input{appearance:none;width:38px;height:21px;background:var(--bg-3);border:1px solid var(--line);border-radius:999px;position:relative;cursor:pointer;flex-shrink:0;transition:.15s}
+  .switch input:checked{background:var(--accent);border-color:var(--accent)}
+  .switch input::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:var(--txt);transition:.15s}
+  .switch input:checked::after{left:19px;background:#fff}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+  .chip{background:var(--bg-3);border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:11.5px;font-family:var(--mono);display:inline-flex;align-items:center;gap:6px}
+  .chip b{cursor:pointer;color:var(--txt-3);font-weight:700}
+  .chip b:hover{color:var(--err)}
+  .chip.t{background:rgba(76,141,255,.14);border-color:rgba(76,141,255,.3);color:var(--accent)}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{
+    text-align:left;padding:8px 10px;color:var(--txt-3);font-weight:600;font-size:11px;
+    text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:var(--bg-2);
+  }
+  td{padding:8px 10px;border-bottom:1px solid rgba(42,50,66,.5);vertical-align:top}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .tag{
+    display:inline-block;padding:2px 7px;border-radius:5px;font-size:10.5px;
+    font-weight:650;font-family:var(--mono);text-transform:uppercase;letter-spacing:.3px;
+  }
+  .tag.deleted,.tag.would_delete{background:rgba(248,81,73,.16);color:var(--err)}
+  .tag.protected{background:rgba(163,113,247,.16);color:var(--prot)}
+  .tag.kept{background:rgba(139,148,158,.16);color:var(--txt-2)}
+  .tag.error{background:rgba(210,153,34,.18);color:var(--warn)}
+  .tag.type{background:var(--bg-3);color:var(--txt-2)}
+  .trunc{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .scroll{max-height:400px;overflow:auto}
+
+  #log{
+    background:#0a0e14;border:1px solid var(--line);border-radius:8px;padding:12px;
+    font-family:var(--mono);font-size:11.5px;line-height:1.7;height:290px;overflow-y:auto;
+  }
+  #log .ln{display:flex;gap:9px;padding:1px 0}
+  #log .t{color:var(--txt-3);flex-shrink:0}
+  #log .l{flex-shrink:0;width:52px;font-weight:700}
+  .INFO{color:var(--accent)} .WARNING{color:var(--warn)} .ERROR{color:var(--err)} .DEBUG{color:var(--txt-3)}
+  #log .m{color:var(--txt);word-break:break-word}
+
+  .bar{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+  .bar .nm{width:92px;font-size:11.5px;color:var(--txt-2);flex-shrink:0;text-align:right}
+  .bar .track{flex:1;height:16px;background:var(--bg);border-radius:4px;overflow:hidden}
+  .bar .fill{height:100%;background:linear-gradient(90deg,var(--accent),#7aa7ff);border-radius:4px;transition:width .4s}
+  .bar .n{width:46px;font-size:11.5px;font-family:var(--mono);color:var(--txt-2)}
+
+  .quota{height:7px;background:var(--bg);border-radius:4px;overflow:hidden;margin-top:9px}
+  .quota i{display:block;height:100%;background:var(--ok);transition:width .4s}
+  .quota i.hi{background:var(--warn)} .quota i.full{background:var(--err)}
+
+  .rule{border:1px solid var(--line);border-radius:9px;padding:14px;margin-bottom:11px;background:var(--bg-3)}
+  .rule.off{opacity:.5}
+  .rule-head{display:flex;gap:10px;align-items:center;margin-bottom:11px;flex-wrap:wrap}
+  .rule-head input.nm{flex:1;min-width:150px;font-weight:600}
+  .rule-head select{width:auto;min-width:96px}
+  .ord{font-family:var(--mono);color:var(--txt-3);font-size:11px;width:20px}
+
+  .banner{padding:11px 14px;border-radius:8px;font-size:12.5px;margin-bottom:14px;line-height:1.55}
+  .banner.warn{background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.35);color:#e3b341}
+  .banner.err{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.35);color:#ff7b72}
+  .banner.info{background:rgba(76,141,255,.1);border:1px solid rgba(76,141,255,.3);color:#79b8ff}
+  .banner.ok{background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.35);color:#56d364}
+
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+  .modal.on{display:flex}
+  .modal .box{background:var(--bg-2);border:1px solid var(--line);border-radius:12px;padding:24px;max-width:470px;width:100%}
+  .modal h3{font-size:16px;margin-bottom:12px}
+  .empty{text-align:center;padding:36px 20px;color:var(--txt-3);font-size:13px}
+  .toast{position:fixed;bottom:22px;right:22px;background:var(--bg-3);border:1px solid var(--line);border-left:3px solid var(--ok);padding:12px 18px;border-radius:8px;font-size:13px;z-index:200;opacity:0;transform:translateY(12px);transition:.25s;pointer-events:none}
+  .toast.on{opacity:1;transform:none}
+  .toast.bad{border-left-color:var(--err)}
+  @media(max-width:820px){aside{width:58px}.brand h1,.brand small,nav button span:not(.ico),.side-foot{display:none}nav button{justify-content:center}}
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="brand">
+    <h1>ig-unsender</h1>
+    <small>control plane v2</small>
+  </div>
+  <nav>
+    <button class="on" data-p="panel"><span class="ico">◧</span><span>Panel</span></button>
+    <button data-p="rules"><span class="ico">⚖</span><span>Reglas</span></button>
+    <button data-p="white"><span class="ico">🛡</span><span>Whitelist</span></button>
+    <button data-p="scope"><span class="ico">◎</span><span>Alcance</span></button>
+    <button data-p="audit"><span class="ico">▤</span><span>Auditoría</span></button>
+    <button data-p="settings"><span class="ico">⚙</span><span>Ajustes</span></button>
+  </nav>
+  <div class="side-foot"><span class="dot" id="conn-dot"></span><span id="conn-txt">conectando…</span></div>
+</aside>
+
+<main>
+  <header>
+    <h2 id="page-title">Panel</h2>
+    <span class="mode sim" id="mode-badge">SIMULACIÓN</span>
+    <span class="pill" id="state-pill"><i class="led"></i><span id="state-txt">idle</span></span>
+  </header>
+
+  <!-- ============ PANEL ============ -->
+  <section class="page on" id="p-panel">
+    <div id="warn-box"></div>
+
+    <div class="card">
+      <h3>Control de ejecución</h3>
+      <p class="hint">Empieza siempre con una simulación. No toca nada: solo te dice qué se borraría y por qué.</p>
+      <div class="row">
+        <button class="btn primary" id="b-sim">▶ Simular</button>
+        <button class="btn danger" id="b-real">⚠ Borrado real</button>
+        <button class="btn" id="b-pause" disabled>⏸ Pausar</button>
+        <button class="btn" id="b-resume" disabled style="display:none">▶ Reanudar</button>
+        <button class="btn ghost" id="b-stop" disabled>⏹ Parar</button>
+        <span style="margin-left:auto;color:var(--txt-3);font-size:12px" id="current-thread"></span>
+      </div>
+    </div>
+
+    <div class="grid kpis" style="margin-bottom:18px">
+      <div class="kpi"><div class="lbl">Examinados</div><div class="val" id="k-scan">0</div><div class="sub" id="k-thr">0 / 0 chats</div></div>
+      <div class="kpi del"><div class="lbl" id="k-del-lbl">A borrar</div><div class="val" id="k-del">0</div><div class="sub" id="k-rate">— /min</div></div>
+      <div class="kpi prot"><div class="lbl">Protegidos</div><div class="val" id="k-prot">0</div><div class="sub">whitelist</div></div>
+      <div class="kpi keep"><div class="lbl">Descartados</div><div class="val" id="k-keep">0</div><div class="sub">no casan reglas</div></div>
+      <div class="kpi err"><div class="lbl">Errores</div><div class="val" id="k-err">0</div><div class="sub" id="k-done">0 ya hechos</div></div>
+      <div class="kpi"><div class="lbl">Cupo hoy</div><div class="val" id="k-quota">0</div><div class="sub" id="k-quota-sub">de 0</div>
+        <div class="quota"><i id="k-quota-bar" style="width:0%"></i></div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px" id="panel-split">
+      <div class="card" style="margin:0">
+        <h3>Registro en vivo</h3>
+        <p class="hint">Todo lo que hace el motor, en tiempo real.</p>
+        <div id="log"></div>
+      </div>
+      <div class="card" style="margin:0">
+        <h3>Desglose por tipo</h3>
+        <p class="hint">Qué clase de mensajes está marcando el motor.</p>
+        <div id="bars"><div class="empty">Sin datos todavía.</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h3>Actividad reciente</h3>
+      <p class="hint">Cada decisión con su motivo. Lo mismo que se guarda en la auditoría.</p>
+      <div class="scroll">
+        <table><thead><tr><th>Hora</th><th>Acción</th><th>Tipo</th><th>Chat</th><th>Contenido</th><th>Motivo</th></tr></thead>
+        <tbody id="feed"><tr><td colspan="6"><div class="empty">Esperando actividad…</div></td></tr></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ REGLAS ============ -->
+  <section class="page" id="p-rules">
+    <div class="banner info">
+      <b>Cómo se decide cada mensaje.</b> Primero manda la whitelist (intocable). Después se recorren estas reglas
+      <b>en orden</b> y la primera que casa decide. Si ninguna casa, se aplica la acción por defecto.
+      Dentro de una regla, todos los criterios que rellenes deben cumplirse a la vez.
+    </div>
+
+    <div class="card">
+      <h3>Acción por defecto</h3>
+      <p class="hint">Qué hacer con un mensaje que no casa con ninguna regla. <b>keep</b> es lo seguro.</p>
+      <select id="default-action" style="max-width:220px">
+        <option value="keep">keep — no tocar</option>
+        <option value="delete">delete — anular</option>
+      </select>
+    </div>
+
+    <div id="rules-list"></div>
+    <div class="row">
+      <button class="btn" id="b-add-rule">+ Añadir regla</button>
+      <button class="btn primary" id="b-save-rules">Guardar reglas</button>
+      <button class="btn ghost sm" id="b-preset">Cargar ejemplo</button>
+    </div>
+  </section>
+
+  <!-- ============ WHITELIST ============ -->
+  <section class="page" id="p-white">
+    <div class="banner warn">
+      <b>🛡 Prioridad absoluta.</b> Lo que caiga aquí no se borra jamás, aunque una regla diga lo contrario.
+      Es tu red de seguridad: úsala para conversaciones o contenidos que no te puedes permitir perder.
+    </div>
+
+    <div class="card">
+      <h3>Personas protegidas</h3>
+      <p class="hint">Chats con estos usuarios quedan intactos. Escribe el @usuario sin la arroba y pulsa Enter.</p>
+      <input type="text" id="wl-users-in" placeholder="usuario_de_instagram">
+      <div class="chips" id="wl-users"></div>
+    </div>
+
+    <div class="card">
+      <h3>Tipos de mensaje protegidos</h3>
+      <p class="hint">Marca lo que nunca se debe tocar. Típico: notas de voz y fotos.</p>
+      <div class="chips" id="wl-types"></div>
+    </div>
+
+    <div class="card">
+      <h3>Palabras y patrones protegidos</h3>
+      <p class="hint">Si el mensaje contiene alguna de estas palabras, se salva. Útil para direcciones, datos o recuerdos.</p>
+      <label class="f"><span>Palabras clave <small>(una por línea)</small></span>
+        <textarea id="wl-keywords" placeholder="te quiero&#10;dirección&#10;cumpleaños"></textarea></label>
+      <label class="f"><span>Expresiones regulares <small>(una por línea, avanzado)</small></span>
+        <textarea id="wl-regex" placeholder="\\b(IBAN|DNI)\\b"></textarea></label>
+    </div>
+
+    <div class="card">
+      <h3>Protecciones rápidas</h3>
+      <label class="switch"><input type="checkbox" id="wl-groups"><span>Proteger todos los chats de grupo</span></label>
+      <label class="f" style="margin-top:12px"><span>IDs de chat protegidos <small>(uno por línea)</small></span>
+        <textarea id="wl-threads"></textarea></label>
+      <label class="f"><span>IDs de mensaje protegidos <small>(uno por línea)</small></span>
+        <textarea id="wl-msgids"></textarea></label>
+    </div>
+
+    <div class="row"><button class="btn primary" id="b-save-wl">Guardar whitelist</button></div>
+  </section>
+
+  <!-- ============ ALCANCE ============ -->
+  <section class="page" id="p-scope">
+    <div class="banner info">El alcance decide <b>qué se descarga</b> de Instagram. Las reglas actúan después, sobre lo descargado.
+      Limitar el alcance es la forma más rápida de hacer pruebas seguras.</div>
+
+    <div class="card">
+      <h3>Volumen</h3>
+      <div class="cols">
+        <label class="f"><span>Chats a procesar <small>(0 = todos)</small></span><input type="number" id="sc-threads" min="0"></label>
+        <label class="f"><span>Mensajes por chat <small>(0 = todos)</small></span><input type="number" id="sc-msgs" min="0"></label>
+      </div>
+      <label class="switch"><input type="checkbox" id="sc-requests"><span>Incluir la bandeja de solicitudes</span></label>
+    </div>
+
+    <div class="card">
+      <h3>Chats concretos</h3>
+      <p class="hint">Rellena "solo estos" para probar el borrado real en una única conversación antes de soltarlo en todas.</p>
+      <div class="row" style="margin-bottom:12px">
+        <button class="btn sm" id="b-load-threads">↻ Cargar mis chats</button>
+        <span style="font-size:12px;color:var(--txt-3)">Requiere sesión iniciada y ninguna ejecución en marcha.</span>
+      </div>
+      <div id="thread-picker"></div>
+      <div class="cols">
+        <label class="f"><span>Solo estos IDs <small>(uno por línea)</small></span><textarea id="sc-only"></textarea></label>
+        <label class="f"><span>Excluir estos IDs <small>(uno por línea)</small></span><textarea id="sc-skip"></textarea></label>
+      </div>
+    </div>
+
+    <div class="row"><button class="btn primary" id="b-save-scope">Guardar alcance</button></div>
+  </section>
+
+  <!-- ============ AUDITORÍA ============ -->
+  <section class="page" id="p-audit">
+    <div class="banner info">Registro <b>append-only</b>: cada decisión queda escrita con su motivo y nunca se reescribe.
+      Es tu prueba de qué se hizo, cuándo y por qué.</div>
+
+    <div class="card">
+      <h3>Consulta</h3>
+      <div class="row" style="margin-bottom:12px">
+        <input type="text" id="au-search" placeholder="Buscar en la auditoría…" style="flex:1;min-width:190px">
+        <select id="au-action" style="width:auto">
+          <option value="">Todas las acciones</option>
+          <option value="deleted">Anulados</option>
+          <option value="would_delete">Simulados</option>
+          <option value="protected">Protegidos</option>
+          <option value="kept">Descartados</option>
+          <option value="error">Errores</option>
+        </select>
+        <button class="btn sm" id="b-au-search">Buscar</button>
+        <button class="btn sm ghost" id="b-au-csv">⬇ Exportar CSV</button>
+      </div>
+      <div id="au-summary" class="row" style="gap:7px;margin-bottom:12px"></div>
+      <div class="scroll">
+        <table><thead><tr><th>Fecha</th><th>Acción</th><th>Tipo</th><th>Chat</th><th>Contenido</th><th>Motivo</th><th>Regla</th></tr></thead>
+        <tbody id="au-rows"><tr><td colspan="7"><div class="empty">Pulsa Buscar para cargar el registro.</div></td></tr></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ AJUSTES ============ -->
+  <section class="page" id="p-settings">
+    <div class="card">
+      <h3>Cuenta</h3>
+      <p class="hint">Se guarda en tu config.yaml local. La contraseña aparece enmascarada; déjala tal cual si no la cambias.
+        En servidor es mejor usar las variables de entorno IG_USERNAME / IG_PASSWORD / IG_TOTP_SEED.</p>
+      <div class="cols">
+        <label class="f"><span>Usuario</span><input type="text" id="ac-user"></label>
+        <label class="f"><span>Contraseña</span><input type="password" id="ac-pass"></label>
+        <label class="f"><span>Semilla TOTP <small>(2FA por app)</small></span><input type="password" id="ac-totp"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Ritmo y seguridad</h3>
+      <p class="hint">Estos números son lo que separa "uso humano" de "bot con prisas". Ir despacio es lo que te protege.</p>
+      <div class="cols">
+        <label class="f"><span>Límite diario <small>(0 = sin límite)</small></span><input type="number" id="bh-daily" min="0"></label>
+        <label class="f"><span>Pausa mínima (s)</span><input type="number" id="bh-min" step="0.5" min="0"></label>
+        <label class="f"><span>Pausa máxima (s)</span><input type="number" id="bh-max" step="0.5" min="0"></label>
+        <label class="f"><span>Pausa larga cada N</span><input type="number" id="bh-every" min="0"></label>
+        <label class="f"><span>Pausa larga mín (s)</span><input type="number" id="bh-lmin" step="1" min="0"></label>
+        <label class="f"><span>Pausa larga máx (s)</span><input type="number" id="bh-lmax" step="1" min="0"></label>
+        <label class="f"><span>Reintentos por mensaje</span><input type="number" id="bh-retries" min="1"></label>
+        <label class="f"><span>Backoff base (s)</span><input type="number" id="bh-backoff" step="1" min="1"></label>
+        <label class="f"><span>Enfriado por rate-limit (s)</span><input type="number" id="bh-cool" step="10" min="0"></label>
+        <label class="f"><span>Parar tras N errores seguidos</span><input type="number" id="bh-stoperr" min="0"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Auditoría y registro</h3>
+      <label class="switch"><input type="checkbox" id="au-keeps"><span>Registrar también lo que NO se borra (protegidos y descartados)</span></label>
+      <label class="f" style="margin-top:12px;max-width:220px"><span>Nivel de log</span>
+        <select id="lg-level"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option></select></label>
+    </div>
+
+    <div class="row"><button class="btn primary" id="b-save-settings">Guardar ajustes</button></div>
+  </section>
+</main>
+
+<div class="modal" id="modal">
+  <div class="box">
+    <h3>⚠ Confirmar borrado real</h3>
+    <div class="banner err" style="margin-bottom:14px">
+      Esto anula mensajes de verdad y <b>no se puede deshacer</b>. Desaparecerán también para la otra persona.
+      Asegúrate de haber corrido antes una simulación y de tener tu copia de datos descargada.
+    </div>
+    <div id="modal-summary" style="font-size:13px;margin-bottom:14px;color:var(--txt-2)"></div>
+    <label class="f"><span>Escribe <b>BORRAR</b> para confirmar</span><input type="text" id="confirm-in" placeholder="BORRAR"></label>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn ghost" id="b-cancel">Cancelar</button>
+      <button class="btn danger" id="b-confirm" disabled>Ejecutar borrado real</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===========================================================================
+// Utilidades
+// ===========================================================================
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const TOKEN = new URLSearchParams(location.search).get('token')
+           || (document.cookie.match(/ig_token=([^;]+)/)||[])[1] || '';
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {'Content-Type':'application/json', 'Authorization':'Bearer '+TOKEN, ...(opts.headers||{})}
+  });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).error || msg; } catch(e){}
+    throw new Error(msg);
+  }
+  return res.headers.get('content-type')?.includes('json') ? res.json() : res.text();
+}
+
+let toastTimer;
+function toast(msg, bad = false) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.className = 'toast on' + (bad ? ' bad' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = 'toast', 3200);
+}
+
+const lines = t => (t||'').split('\n').map(s=>s.trim()).filter(Boolean);
+const esc = s => String(s??'').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+const hhmm = ts => new Date(ts*1000).toLocaleTimeString('es-ES',{hour12:false});
+
+// ===========================================================================
+// Navegación
+// ===========================================================================
+const TITLES = {panel:'Panel', rules:'Reglas de filtrado', white:'Whitelist',
+                scope:'Alcance', audit:'Auditoría', settings:'Ajustes'};
+$$('nav button').forEach(b => b.onclick = () => {
+  $$('nav button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  $$('.page').forEach(p => p.classList.remove('on'));
+  $('#p-' + b.dataset.p).classList.add('on');
+  $('#page-title').textContent = TITLES[b.dataset.p];
+  if (b.dataset.p === 'audit') loadAudit();
+});
+
+// ===========================================================================
+// Estado y config
+// ===========================================================================
+let CFG = null, META = {known_types: []}, STATUS = {};
+
+async function loadConfig() {
+  CFG = await api('/api/config');
+  renderRules(); renderWhitelist(); renderScope(); renderSettings();
+}
+
+async function refreshStatus() {
+  try {
+    STATUS = await api('/api/status');
+    applyStatus(STATUS);
+  } catch (e) { /* el SSE ya avisa de la desconexión */ }
+}
+
+function applyStatus(s) {
+  const st = s.state || 'idle';
+  const pill = $('#state-pill');
+  pill.className = 'pill ' + (['running','connecting'].includes(st) ? 'running'
+    : st === 'paused' ? 'paused' : st === 'error' ? 'error'
+    : ['finished','stopped'].includes(st) ? 'finished' : '');
+  $('#state-txt').textContent = {idle:'en reposo', connecting:'conectando', running:'ejecutando',
+    paused:'en pausa', stopping:'parando', finished:'terminado', stopped:'detenido',
+    error:'error'}[st] || st;
+
+  const dry = s.dry_run !== false;
+  $('#mode-badge').className = 'mode ' + (dry ? 'sim' : 'real');
+  $('#mode-badge').textContent = dry ? 'SIMULACIÓN' : 'BORRADO REAL';
+  $('#k-del-lbl').textContent = dry ? 'A borrar (sim.)' : 'Anulados';
+
+  const busy = !!s.busy, paused = st === 'paused';
+  $('#b-sim').disabled = busy; $('#b-real').disabled = busy;
+  $('#b-pause').disabled = !busy || paused;
+  $('#b-stop').disabled = !busy;
+  $('#b-pause').style.display = paused ? 'none' : '';
+  $('#b-resume').style.display = paused ? '' : 'none';
+  $('#b-resume').disabled = !paused;
+
+  if (s.stats) applyStats(s.stats);
+  if (s.quota) applyQuota(s.quota);
+
+  const w = $('#warn-box');
+  if (s.error) {
+    w.innerHTML = `<div class="banner err"><b>Error:</b> ${esc(s.error)}</div>`;
+  } else if (s.warnings?.length) {
+    w.innerHTML = `<div class="banner warn"><b>Avisos de configuración:</b><br>`
+      + s.warnings.map(x => '· ' + esc(x)).join('<br>') + '</div>';
+  } else w.innerHTML = '';
+}
+
+function applyStats(st) {
+  $('#k-scan').textContent = st.scanned ?? 0;
+  $('#k-del').textContent = (STATUS.dry_run !== false ? st.would_delete : st.deleted) ?? 0;
+  $('#k-prot').textContent = st.protected ?? 0;
+  $('#k-keep').textContent = st.kept ?? 0;
+  $('#k-err').textContent = st.errors ?? 0;
+  $('#k-thr').textContent = `${st.threads_done ?? 0} / ${st.threads_total ?? 0} chats`;
+  $('#k-done').textContent = `${st.already_done ?? 0} ya hechos`;
+  $('#k-rate').textContent = st.rate_per_minute ? st.rate_per_minute + ' /min' : '— /min';
+  $('#current-thread').textContent = st.current_thread ? '◈ ' + st.current_thread : '';
+  renderBars(st.by_type || {});
+}
+
+function applyQuota(q) {
+  const used = q.deleted_today ?? 0, lim = q.daily_limit ?? 0;
+  $('#k-quota').textContent = used;
+  $('#k-quota-sub').textContent = lim ? 'de ' + lim : 'sin límite';
+  const pct = lim ? Math.min(100, used / lim * 100) : 0;
+  const bar = $('#k-quota-bar');
+  bar.style.width = pct + '%';
+  bar.className = pct >= 100 ? 'full' : pct > 75 ? 'hi' : '';
+}
+
+function renderBars(byType) {
+  const box = $('#bars'), entries = Object.entries(byType);
+  if (!entries.length) { box.innerHTML = '<div class="empty">Sin datos todavía.</div>'; return; }
+  const max = Math.max(...entries.map(e => e[1]));
+  box.innerHTML = entries.map(([k, v]) =>
+    `<div class="bar"><div class="nm">${esc(k)}</div>
+     <div class="track"><div class="fill" style="width:${v/max*100}%"></div></div>
+     <div class="n">${v}</div></div>`).join('');
+}
+
+// ===========================================================================
+// Reglas
+// ===========================================================================
+function ruleCard(rule, i) {
+  const w = rule.when || {};
+  const types = (META.known_types || []).map(t =>
+    `<label class="chip t" style="cursor:pointer">
+       <input type="checkbox" data-t="${t}" ${(w.types||[]).includes(t)?'checked':''}
+              style="margin:0;width:11px;height:11px;accent-color:#4c8dff">${t}</label>`).join('');
+  return `<div class="rule ${rule.enabled===false?'off':''}" data-i="${i}">
+    <div class="rule-head">
+      <span class="ord">${i+1}</span>
+      <input type="text" class="nm" value="${esc(rule.name||'')}" placeholder="Nombre de la regla">
+      <select class="act">
+        <option value="delete" ${rule.action==='delete'?'selected':''}>🗑 delete</option>
+        <option value="keep" ${rule.action==='keep'?'selected':''}>✓ keep</option>
+      </select>
+      <label class="switch" style="padding:0"><input type="checkbox" class="en" ${rule.enabled!==false?'checked':''}></label>
+      <button class="btn sm ghost up">↑</button>
+      <button class="btn sm ghost down">↓</button>
+      <button class="btn sm danger del">✕</button>
+    </div>
+    <label class="switch" style="padding:2px 0 8px">
+      <input type="checkbox" class="catch" ${w.catch_all?'checked':''}>
+      <span>Catch-all — casa con <b>todo</b> lo que llegue hasta aquí (ponla la última)</span></label>
+    <div class="rule-body" ${w.catch_all?'style="display:none"':''}>
+      <div style="font-size:11px;color:var(--txt-3);margin:6px 0 4px">TIPOS DE MENSAJE (vacío = cualquiera)</div>
+      <div class="chips types">${types}</div>
+      <div class="cols" style="margin-top:12px">
+        <label class="f"><span>Contiene alguna de <small>(una por línea)</small></span>
+          <textarea class="kany">${esc((w.keywords_any||[]).join('\n'))}</textarea></label>
+        <label class="f"><span>Contiene todas <small>(una por línea)</small></span>
+          <textarea class="kall">${esc((w.keywords_all||[]).join('\n'))}</textarea></label>
+      </div>
+      <label class="f"><span>Regex <small>(una por línea)</small></span>
+        <textarea class="rgx">${esc((w.regex_any||[]).join('\n'))}</textarea></label>
+      <div class="cols">
+        <label class="f"><span>Anterior a <small>(YYYY-MM-DD)</small></span><input type="text" class="before" value="${esc(w.before||'')}" placeholder="2025-01-01"></label>
+        <label class="f"><span>Posterior a <small>(YYYY-MM-DD)</small></span><input type="text" class="after" value="${esc(w.after||'')}" placeholder="2024-01-01"></label>
+        <label class="f"><span>Longitud mínima</span><input type="number" class="minl" value="${w.min_length||0}" min="0"></label>
+        <label class="f"><span>Longitud máxima</span><input type="number" class="maxl" value="${w.max_length||0}" min="0"></label>
+      </div>
+      <div class="cols">
+        <label class="f"><span>Solo estos usuarios <small>(uno por línea)</small></span>
+          <textarea class="users">${esc((w.usernames||[]).join('\n'))}</textarea></label>
+        <label class="f"><span>Solo estos IDs de chat <small>(uno por línea)</small></span>
+          <textarea class="thr">${esc((w.threads||[]).join('\n'))}</textarea></label>
+      </div>
+      <label class="f" style="max-width:230px"><span>Tipo de chat</span>
+        <select class="grp">
+          <option value="">Cualquiera</option>
+          <option value="true" ${w.is_group===true?'selected':''}>Solo grupos</option>
+          <option value="false" ${w.is_group===false?'selected':''}>Solo chats individuales</option>
+        </select></label>
+    </div></div>`;
+}
+
+function renderRules() {
+  const list = CFG.rules?.items || [];
+  $('#default-action').value = CFG.rules?.default_action || 'keep';
+  $('#rules-list').innerHTML = list.length
+    ? list.map(ruleCard).join('')
+    : '<div class="card"><div class="empty">No hay reglas. Sin reglas no se borra nada.<br>Añade una o carga el ejemplo.</div></div>';
+  bindRules();
+}
+
+function bindRules() {
+  $$('#rules-list .rule').forEach(el => {
+    const i = +el.dataset.i;
+    el.querySelector('.del').onclick = () => { CFG.rules.items.splice(i,1); saveRulesLocal(); renderRules(); };
+    el.querySelector('.up').onclick = () => { if(i>0){ const a=CFG.rules.items; [a[i-1],a[i]]=[a[i],a[i-1]]; saveRulesLocal(); renderRules(); } };
+    el.querySelector('.down').onclick = () => { const a=CFG.rules.items; if(i<a.length-1){ [a[i+1],a[i]]=[a[i],a[i+1]]; saveRulesLocal(); renderRules(); } };
+    el.querySelector('.catch').onchange = e => {
+      el.querySelector('.rule-body').style.display = e.target.checked ? 'none' : '';
+    };
+    el.querySelector('.en').onchange = e => el.classList.toggle('off', !e.target.checked);
+  });
+}
+
+function saveRulesLocal() {
+  // Vuelca lo que hay en el DOM al objeto CFG antes de reordenar o guardar.
+  const items = [];
+  $$('#rules-list .rule').forEach(el => {
+    const grp = el.querySelector('.grp').value;
+    const when = {
+      catch_all: el.querySelector('.catch').checked,
+      types: [...el.querySelectorAll('.types input:checked')].map(c => c.dataset.t),
+      keywords_any: lines(el.querySelector('.kany').value),
+      keywords_all: lines(el.querySelector('.kall').value),
+      regex_any: lines(el.querySelector('.rgx').value),
+      before: el.querySelector('.before').value.trim(),
+      after: el.querySelector('.after').value.trim(),
+      min_length: +el.querySelector('.minl').value || 0,
+      max_length: +el.querySelector('.maxl').value || 0,
+      usernames: lines(el.querySelector('.users').value),
+      threads: lines(el.querySelector('.thr').value),
+      is_group: grp === '' ? null : grp === 'true',
+    };
+    items.push({
+      name: el.querySelector('.nm').value.trim() || 'sin nombre',
+      action: el.querySelector('.act').value,
+      enabled: el.querySelector('.en').checked,
+      when,
+    });
+  });
+  CFG.rules = {default_action: $('#default-action').value, items};
+  return CFG.rules;
+}
+
+$('#b-add-rule').onclick = () => {
+  saveRulesLocal();
+  CFG.rules.items.push({name:'Nueva regla', action:'delete', enabled:true, when:{}});
+  renderRules();
+};
+
+$('#b-preset').onclick = () => {
+  if (!confirm('Esto reemplaza las reglas actuales por un conjunto de ejemplo. ¿Seguir?')) return;
+  CFG.rules = {default_action:'keep', items:[
+    {name:'Nunca tocar notas de voz', action:'keep', enabled:true, when:{types:['voice']}},
+    {name:'Borrar datos sensibles', action:'delete', enabled:true,
+     when:{keywords_any:['contraseña','password','iban','dni','tarjeta']}},
+    {name:'Borrar fotos y vídeos antiguos', action:'delete', enabled:true,
+     when:{types:['photo','video'], before:'2025-01-01'}},
+    {name:'Borrar todo el texto restante', action:'delete', enabled:true, when:{types:['text']}},
+  ]};
+  renderRules();
+  toast('Ejemplo cargado. Revísalo y pulsa Guardar.');
+};
+
+$('#b-save-rules').onclick = async () => {
+  try {
+    const rules = saveRulesLocal();
+    const r = await api('/api/config', {method:'POST', body: JSON.stringify({rules})});
+    toast('Reglas guardadas.' + (r.warnings?.length ? ' Con avisos, míralos en el Panel.' : ''));
+    refreshStatus();
+  } catch (e) { toast(e.message, true); }
+};
+
+// ===========================================================================
+// Whitelist
+// ===========================================================================
+let wlUsers = [];
+
+function renderWhitelist() {
+  const wl = CFG.whitelist || {}, m = wl.match || {};
+  wlUsers = m.usernames || [];
+  drawUsers();
+  $('#wl-types').innerHTML = (META.known_types||[]).map(t =>
+    `<label class="chip t" style="cursor:pointer">
+       <input type="checkbox" data-t="${t}" ${(m.types||[]).includes(t)?'checked':''}
+              style="margin:0;width:11px;height:11px;accent-color:#4c8dff">${t}</label>`).join('');
+  $('#wl-keywords').value = (m.keywords_any||[]).join('\n');
+  $('#wl-regex').value = (m.regex_any||[]).join('\n');
+  $('#wl-threads').value = (m.threads||[]).join('\n');
+  $('#wl-msgids').value = (wl.message_ids||[]).join('\n');
+  $('#wl-groups').checked = !!wl.protect_groups;
+}
+
+function drawUsers() {
+  $('#wl-users').innerHTML = wlUsers.length
+    ? wlUsers.map((u,i) => `<span class="chip">@${esc(u)}<b data-i="${i}">✕</b></span>`).join('')
+    : '<span style="font-size:12px;color:var(--txt-3)">Ninguno. Los chats con estas personas quedarían intactos.</span>';
+  $$('#wl-users b').forEach(b => b.onclick = () => { wlUsers.splice(+b.dataset.i,1); drawUsers(); });
+}
+
+$('#wl-users-in').onkeydown = e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const v = e.target.value.trim().replace(/^@/,'').toLowerCase();
+  if (v && !wlUsers.includes(v)) { wlUsers.push(v); drawUsers(); }
+  e.target.value = '';
+};
+
+$('#b-save-wl').onclick = async () => {
+  const whitelist = {
+    message_ids: lines($('#wl-msgids').value),
+    protect_groups: $('#wl-groups').checked,
+    match: {
+      usernames: wlUsers,
+      types: [...$$('#wl-types input:checked')].map(c => c.dataset.t),
+      keywords_any: lines($('#wl-keywords').value),
+      regex_any: lines($('#wl-regex').value),
+      threads: lines($('#wl-threads').value),
+    }
+  };
+  try {
+    await api('/api/config', {method:'POST', body: JSON.stringify({whitelist})});
+    CFG.whitelist = whitelist;
+    toast('Whitelist guardada. Eso ya no se toca.');
+    refreshStatus();
+  } catch (e) { toast(e.message, true); }
+};
+
+// ===========================================================================
+// Alcance
+// ===========================================================================
+function renderScope() {
+  const s = CFG.scope || {};
+  $('#sc-threads').value = s.threads_amount ?? 0;
+  $('#sc-msgs').value = s.messages_per_thread ?? 0;
+  $('#sc-requests').checked = !!s.include_requests;
+  $('#sc-only').value = (s.only_thread_ids||[]).join('\n');
+  $('#sc-skip').value = (s.skip_thread_ids||[]).join('\n');
+}
+
+$('#b-load-threads').onclick = async () => {
+  const btn = $('#b-load-threads');
+  btn.disabled = true; btn.textContent = 'Cargando…';
+  try {
+    const {threads} = await api('/api/threads');
+    $('#thread-picker').innerHTML = `<div class="scroll" style="max-height:260px;margin-bottom:14px">
+      <table><thead><tr><th>Chat</th><th>Tipo</th><th>ID</th><th></th></tr></thead><tbody>
+      ${threads.map(t => `<tr>
+        <td>${esc(t.title)}</td>
+        <td><span class="tag type">${t.is_group?'grupo':'directo'}</span></td>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--txt-3)">${esc(t.id)}</td>
+        <td class="row">
+          <button class="btn sm only" data-id="${esc(t.id)}">Solo este</button>
+          <button class="btn sm ghost prot" data-u="${esc(t.usernames[0]||'')}">🛡 Proteger</button>
+        </td></tr>`).join('')}
+      </tbody></table></div>`;
+    $$('#thread-picker .only').forEach(b => b.onclick = () => {
+      $('#sc-only').value = b.dataset.id;
+      toast('Alcance limitado a ese chat. Recuerda guardar.');
+    });
+    $$('#thread-picker .prot').forEach(b => b.onclick = () => {
+      const u = b.dataset.u;
+      if (u && !wlUsers.includes(u)) { wlUsers.push(u); drawUsers(); toast('@'+u+' añadido a la whitelist. Guárdala.'); }
+    });
+  } catch (e) { toast(e.message, true); }
+  btn.disabled = false; btn.textContent = '↻ Cargar mis chats';
+};
+
+$('#b-save-scope').onclick = async () => {
+  const scope = {
+    threads_amount: +$('#sc-threads').value || 0,
+    messages_per_thread: +$('#sc-msgs').value || 0,
+    include_requests: $('#sc-requests').checked,
+    only_thread_ids: lines($('#sc-only').value),
+    skip_thread_ids: lines($('#sc-skip').value),
+  };
+  try {
+    await api('/api/config', {method:'POST', body: JSON.stringify({scope})});
+    CFG.scope = scope; toast('Alcance guardado.');
+  } catch (e) { toast(e.message, true); }
+};
+
+// ===========================================================================
+// Ajustes
+// ===========================================================================
+function renderSettings() {
+  const a = CFG.account||{}, b = CFG.behavior||{};
+  $('#ac-user').value = a.username||''; $('#ac-pass').value = a.password||''; $('#ac-totp').value = a.totp_seed||'';
+  $('#bh-daily').value = b.daily_limit ?? 200;
+  $('#bh-min').value = b.min_delay ?? 3; $('#bh-max').value = b.max_delay ?? 10;
+  $('#bh-every').value = b.pause_every ?? 40;
+  $('#bh-lmin').value = b.long_pause_min ?? 45; $('#bh-lmax').value = b.long_pause_max ?? 90;
+  $('#bh-retries').value = b.max_retries ?? 3; $('#bh-backoff').value = b.backoff_base ?? 30;
+  $('#bh-cool').value = b.rate_limit_cooldown ?? 300;
+  $('#bh-stoperr').value = b.stop_on_consecutive_errors ?? 5;
+  $('#au-keeps').checked = CFG.audit?.record_keeps !== false;
+  $('#lg-level').value = CFG.logging?.level || 'INFO';
+}
+
+$('#b-save-settings').onclick = async () => {
+  const payload = {
+    account: {username:$('#ac-user').value.trim(), password:$('#ac-pass').value, totp_seed:$('#ac-totp').value},
+    behavior: {
+      daily_limit:+$('#bh-daily').value, min_delay:+$('#bh-min').value, max_delay:+$('#bh-max').value,
+      pause_every:+$('#bh-every').value, long_pause_min:+$('#bh-lmin').value, long_pause_max:+$('#bh-lmax').value,
+      max_retries:+$('#bh-retries').value, backoff_base:+$('#bh-backoff').value,
+      rate_limit_cooldown:+$('#bh-cool').value, stop_on_consecutive_errors:+$('#bh-stoperr').value,
+    },
+    audit: {record_keeps: $('#au-keeps').checked},
+    logging: {level: $('#lg-level').value},
+  };
+  try {
+    await api('/api/config', {method:'POST', body: JSON.stringify(payload)});
+    toast('Ajustes guardados.'); loadConfig(); refreshStatus();
+  } catch (e) { toast(e.message, true); }
+};
+
+// ===========================================================================
+// Controles de ejecución
+// ===========================================================================
+$('#b-sim').onclick = async () => {
+  try { await api('/api/control/start', {method:'POST', body: JSON.stringify({dry_run:true})});
+        clearFeed(); toast('Simulación en marcha. No se borra nada.'); }
+  catch (e) { toast(e.message, true); }
+};
+
+$('#b-real').onclick = () => {
+  const s = STATUS.stats || {};
+  $('#modal-summary').innerHTML =
+    `Reglas activas: <b>${STATUS.rules_active ?? 0}</b> de ${STATUS.rules_total ?? 0}.<br>
+     Cupo restante hoy: <b>${STATUS.quota?.remaining_today ?? '?'}</b> mensajes.<br>
+     ${s.would_delete ? `Tu última simulación marcó <b>${s.would_delete}</b> mensajes.` :
+       '<span style="color:var(--warn)">No consta ninguna simulación en esta sesión. Te recomiendo correr una antes.</span>'}`;
+  $('#confirm-in').value = ''; $('#b-confirm').disabled = true;
+  $('#modal').classList.add('on'); $('#confirm-in').focus();
+};
+
+$('#confirm-in').oninput = e => $('#b-confirm').disabled = e.target.value.trim() !== 'BORRAR';
+$('#b-cancel').onclick = () => $('#modal').classList.remove('on');
+$('#modal').onclick = e => { if (e.target.id === 'modal') $('#modal').classList.remove('on'); };
+
+$('#b-confirm').onclick = async () => {
+  try {
+    await api('/api/control/start', {method:'POST',
+      body: JSON.stringify({dry_run:false, confirm:'BORRAR'})});
+    $('#modal').classList.remove('on'); clearFeed();
+    toast('Borrado real en marcha. Puedes pausar o parar cuando quieras.');
+  } catch (e) { toast(e.message, true); }
+};
+
+['pause','resume','stop'].forEach(a => $('#b-'+a).onclick = async () => {
+  try { await api('/api/control/'+a, {method:'POST'}); } catch (e) { toast(e.message, true); }
+});
+
+// ===========================================================================
+// Feed y log en vivo
+// ===========================================================================
+const feedRows = [];
+function clearFeed() { feedRows.length = 0; $('#feed').innerHTML = ''; $('#log').innerHTML = ''; }
+
+function pushFeed(e) {
+  feedRows.unshift(e);
+  if (feedRows.length > 120) feedRows.pop();
+  $('#feed').innerHTML = feedRows.map(r => `<tr>
+    <td style="color:var(--txt-3);font-family:var(--mono)">${hhmm(r.ts)}</td>
+    <td><span class="tag ${r.action}">${r.action==='would_delete'?'simulado':
+        r.action==='deleted'?'anulado':r.action==='protected'?'protegido':'descartado'}</span></td>
+    <td><span class="tag type">${esc(r.type)}</span></td>
+    <td class="trunc" style="max-width:150px">${esc(r.thread)}</td>
+    <td class="trunc">${esc(r.preview)}</td>
+    <td class="trunc" style="color:var(--txt-3);max-width:190px">${esc(r.reason)}</td></tr>`).join('');
+}
+
+function pushLog(e) {
+  const box = $('#log');
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  const div = document.createElement('div');
+  div.className = 'ln';
+  div.innerHTML = `<span class="t">${hhmm(e.ts)}</span>
+    <span class="l ${e.level}">${e.level.slice(0,4)}</span>
+    <span class="m">${esc(e.message)}</span>`;
+  box.appendChild(div);
+  while (box.children.length > 600) box.removeChild(box.firstChild);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+// ===========================================================================
+// SSE
+// ===========================================================================
+let es = null;
+function connect() {
+  es = new EventSource('/api/events?token=' + encodeURIComponent(TOKEN));
+  es.onopen = () => { $('#conn-dot').className = 'dot live'; $('#conn-txt').textContent = 'en vivo'; };
+  es.onerror = () => {
+    $('#conn-dot').className = 'dot'; $('#conn-txt').textContent = 'reconectando…';
+    es.close(); setTimeout(connect, 3000);
+  };
+  es.onmessage = ev => {
+    let e; try { e = JSON.parse(ev.data); } catch (x) { return; }
+    if (e.kind === 'log') pushLog(e);
+    else if (e.kind === 'decision') { pushFeed(e); }
+    else if (e.kind === 'stats') applyStats(e);
+    else if (e.kind === 'status') { refreshStatus(); }
+    else if (e.kind === 'thread') $('#current-thread').textContent = '◈ ' + e.title;
+  };
+}
+
+// ===========================================================================
+// Auditoría
+// ===========================================================================
+async function loadAudit() {
+  try {
+    const q = new URLSearchParams({
+      search: $('#au-search').value, action: $('#au-action').value, limit: 300
+    });
+    const d = await api('/api/audit?' + q);
+    const s = d.summary?.by_action || {};
+    $('#au-summary').innerHTML = Object.entries(s).map(([k,v]) =>
+      `<span class="chip"><span class="tag ${k}">${esc(k)}</span> ${v}</span>`).join('')
+      || '<span style="font-size:12px;color:var(--txt-3)">Registro vacío.</span>';
+    $('#au-rows').innerHTML = d.entries.length ? d.entries.map(r => `<tr>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--txt-3)">${esc((r.ts||'').replace('T',' ').replace('+00:00','Z'))}</td>
+      <td><span class="tag ${r.action}">${esc(r.action)}</span></td>
+      <td><span class="tag type">${esc(r.message_type||'')}</span></td>
+      <td class="trunc" style="max-width:130px">${esc(r.thread_title||'')}</td>
+      <td class="trunc">${esc(r.preview||'')}</td>
+      <td class="trunc" style="color:var(--txt-3);max-width:180px">${esc(r.reason||r.error||'')}</td>
+      <td style="color:var(--txt-3);font-size:11px">${esc(r.rule||'')}</td></tr>`).join('')
+      : '<tr><td colspan="7"><div class="empty">Nada que mostrar con esos filtros.</div></td></tr>';
+  } catch (e) { toast(e.message, true); }
+}
+
+$('#b-au-search').onclick = loadAudit;
+$('#au-search').onkeydown = e => { if (e.key === 'Enter') loadAudit(); };
+$('#au-action').onchange = loadAudit;
+$('#b-au-csv').onclick = () => {
+  const q = new URLSearchParams({action: $('#au-action').value, token: TOKEN});
+  window.open('/api/audit.csv?' + q, '_blank');
+};
+
+// ===========================================================================
+// Arranque
+// ===========================================================================
+(async function init() {
+  try {
+    META = await api('/api/meta');
+    await loadConfig();
+    await refreshStatus();
+    connect();
+    setInterval(refreshStatus, 5000);
+  } catch (e) {
+    document.body.innerHTML = `<div style="margin:auto;text-align:center;padding:40px">
+      <h2 style="margin-bottom:10px">No se pudo conectar</h2>
+      <p style="color:var(--txt-2)">${esc(e.message)}</p>
+      <p style="color:var(--txt-3);margin-top:12px;font-size:12px">
+        Abre el dashboard con la URL que imprime la consola, incluyendo el <code>?token=…</code>.</p></div>`;
+  }
+})();
+</script>
+</body>
+</html>

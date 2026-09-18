@@ -1,0 +1,11 @@
+# Núcleo
+# Verificado contra instagrapi 3.0.4: direct_threads, direct_messages,
+# direct_message_delete, direct_pending_inbox, totp_generate_code,
+# dump_settings/load_settings y private_request existen con firmas compatibles.
+# pydantic lo arrastra instagrapi: no lo pinches aquí o romperás la instalación.
+instagrapi==3.0.4
+PyYAML==6.0.2
+
+# Dashboard web
+fastapi==0.115.6
+uvicorn[standard]==0.34.0

@@ -1,0 +1,160 @@
+# ---------------------------------------------------------------------------
+# ig-unsender — configuración de ejemplo
+#
+# Copia este archivo a "config.yaml" y ajústalo. Casi todo se puede tocar
+# también desde el dashboard (python dashboard.py), que escribe aquí mismo.
+#
+# NUNCA subas config.yaml a git: lleva tus credenciales. Ya está en .gitignore.
+# ---------------------------------------------------------------------------
+
+account:
+  username: "tu_usuario"
+  password: "tu_contraseña"
+  # Semilla TOTP si tienes 2FA por app (la cadena larga que te dan al
+  # activarlo). Vacío = se te pedirá el código por consola en el primer login.
+  # En servidor es mejor usar las variables de entorno:
+  #   IG_USERNAME / IG_PASSWORD / IG_TOTP_SEED  (tienen prioridad sobre esto)
+  totp_seed: ""
+
+session:
+  # Sesión persistente: loguearse una sola vez es lo que más reduce el riesgo
+  # de que Instagram marque la actividad como sospechosa.
+  file: "session.json"
+
+dashboard:
+  host: "127.0.0.1"      # NO lo abras a la red sin HTTPS: maneja tu sesión
+  port: 8787
+  auth_token: ""         # vacío = se genera uno nuevo en cada arranque
+  open_browser: true
+
+# ---------------------------------------------------------------------------
+# ALCANCE — qué se descarga de Instagram (las reglas actúan después)
+# ---------------------------------------------------------------------------
+scope:
+  threads_amount: 0        # nº de chats a procesar. 0 = todos
+  messages_per_thread: 0   # nº de mensajes por chat. 0 = todos
+  only_thread_ids: []      # si pones IDs, SOLO se procesan esos (ideal para probar)
+  skip_thread_ids: []      # IDs que se saltan siempre
+  include_requests: false  # incluir la bandeja de solicitudes
+
+# ---------------------------------------------------------------------------
+# COMPORTAMIENTO — ritmo, reintentos y frenos de seguridad
+# ---------------------------------------------------------------------------
+behavior:
+  dry_run: true                   # true = simula, no borra. EMPIEZA SIEMPRE ASÍ
+  daily_limit: 200                # tope de anulaciones por día. 0 = sin límite
+  min_delay: 3.0                  # pausa aleatoria entre borrados (s)
+  max_delay: 10.0
+  pause_every: 40                 # cada N borrados, una pausa larga
+  long_pause_min: 45.0
+  long_pause_max: 90.0
+  max_retries: 3                  # reintentos por mensaje antes de rendirse
+  backoff_base: 30.0              # espera base del backoff exponencial (s)
+  rate_limit_cooldown: 300.0      # enfriado al detectar rate-limit (s)
+  stop_on_consecutive_errors: 5   # parada de emergencia. 0 = desactivado
+
+# ---------------------------------------------------------------------------
+# WHITELIST — PRIORIDAD ABSOLUTA
+#
+# Lo que caiga aquí NO se borra jamás, aunque una regla diga lo contrario.
+# Es tu red de seguridad. Se evalúa antes que cualquier regla.
+# ---------------------------------------------------------------------------
+whitelist:
+  protect_groups: false      # true = ningún chat de grupo se toca
+  message_ids: []            # IDs de mensajes concretos, intocables
+
+  match:
+    # Chats con estas personas: intactos
+    usernames: []
+    #  - mi_pareja
+    #  - mi_jefe
+
+    # Tipos que nunca se borran (ver lista de tipos más abajo)
+    types: []
+    #  - voice        # las notas de voz no se recuperan jamás
+    #  - photo
+
+    # Si el mensaje contiene alguna de estas palabras, se salva
+    keywords_any: []
+    #  - "te quiero"
+    #  - "dirección"
+
+    regex_any: []            # patrones avanzados
+    threads: []              # IDs de chat protegidos
+
+# ---------------------------------------------------------------------------
+# REGLAS — se evalúan EN ORDEN; la primera que casa decide
+#
+# Dentro de una regla, TODOS los criterios que rellenes deben cumplirse (AND).
+# action: delete (anular) | keep (dejar en paz)
+#
+# Criterios disponibles en `when`:
+#   catch_all: true        -> casa con todo (ponla siempre la última)
+#   types: [...]           -> tipos de mensaje
+#   keywords_any: [...]    -> contiene ALGUNA de estas palabras
+#   keywords_all: [...]    -> contiene TODAS estas palabras
+#   regex_any: [...]       -> casa con alguna expresión regular
+#   before: "YYYY-MM-DD"   -> anterior a esa fecha
+#   after:  "YYYY-MM-DD"   -> posterior a esa fecha
+#   min_length / max_length-> longitud del texto en caracteres
+#   usernames: [...]       -> solo en chats con estas personas
+#   threads: [...]         -> solo en estos IDs de chat
+#   is_group: true|false   -> solo grupos / solo chats individuales
+#   case_sensitive: true   -> distinguir mayúsculas (por defecto no)
+#
+# TIPOS VÁLIDOS:
+#   text  photo  video  voice  gif  link  share  story  reel
+#   disappearing  like  location  profile  call  system  other
+# ---------------------------------------------------------------------------
+rules:
+  # Qué hacer si ninguna regla casa. "keep" es lo seguro.
+  default_action: keep
+
+  items:
+    - name: "Nunca tocar notas de voz"
+      action: keep
+      enabled: true
+      when:
+        types: [voice]
+
+    - name: "Borrar mensajes con datos sensibles"
+      action: delete
+      enabled: true
+      when:
+        keywords_any: ["contraseña", "password", "iban", "dni", "tarjeta"]
+
+    - name: "Borrar fotos y vídeos antiguos"
+      action: delete
+      enabled: true
+      when:
+        types: [photo, video]
+        before: "2025-01-01"
+
+    - name: "Borrar el resto del texto"
+      action: delete
+      enabled: true
+      when:
+        types: [text]
+
+    # Para borrarlo absolutamente todo, activa esta y ponla la última:
+    # - name: "Borrar todo lo demás"
+    #   action: delete
+    #   enabled: true
+    #   when:
+    #     catch_all: true
+
+# ---------------------------------------------------------------------------
+# PERSISTENCIA
+# ---------------------------------------------------------------------------
+state:
+  # Qué se ha anulado ya y cuánto cupo llevas hoy. Permite reanudar.
+  file: "state.json"
+
+audit:
+  # Registro append-only de cada decisión, con su motivo. Exportable a CSV.
+  file: "audit.jsonl"
+  record_keeps: true    # registrar también lo protegido y lo descartado
+
+logging:
+  file: "unsender.log"
+  level: "INFO"         # DEBUG para ver todo el detalle
